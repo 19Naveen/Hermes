@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# hermes — config backup & restore with a fuzzy picker UI
+# https://github.com/19Naveen/Hermes
+# entrypoint only — logic lives in lib/
+
+set -euo pipefail
+
+SELF="$(readlink -f "$0")"
+LIB="${HERMES_LIB:-$(dirname "$SELF")/../share/hermes/lib}"
+[[ -d $LIB ]] || LIB="$(dirname "$SELF")/lib"
+[[ -d $LIB ]] || { echo "hermes: lib not found at $LIB" >&2; exit 1; }
+
+for f in common discover backup install extra; do
+  # shellcheck source=/dev/null
+  source "$LIB/$f.sh"
+done
+
+case "${1:-help}" in
+  backup)     do_backup ;;
+  install)    do_install ;;
+  list)       do_list ;;
+  remote)     do_remote "$@" ;;
+  secret)     do_secret "$@" ;;
+  completion) do_completion ;;
+  update)     do_update ;;
+  *)          usage ;;
+esac
