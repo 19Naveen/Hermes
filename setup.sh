@@ -17,17 +17,62 @@ ok()   { printf '\033[1;32m ✔\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m ⚠ %s\033[0m\n' "$*"; }
 die()  { printf '\033[1;31m ✖ %s\033[0m\n' "$*" >&2; exit 1; }
 
+# Hermes block art banner — uses gum when available, fallback to plain
+hermes_banner() {
+  if command -v gum >/dev/null 2>&1; then
+    gum style --border rounded --border-foreground 99 --align center --width 62 --margin "1 0" \
+      "$(gum style --bold --foreground 99 '██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗')" \
+      "$(gum style --bold --foreground 99 '██║  ██║██╔════╝██╔══██╗████╗ ████║██╔════╝██╔════╝')" \
+      "$(gum style --bold --foreground 99 '███████║█████╗  ██████╔╝██╔████╔██║█████╗  ███████╗')" \
+      "$(gum style --bold --foreground 99 '██╔══██║██╔══╝  ██╔══██╗██║╚██╔╝██║██╔══╝  ╚════██║')" \
+      "$(gum style --bold --foreground 99 '██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗███████║')" \
+      "$(gum style --bold --foreground 99 '╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝')" \
+      "$(gum style --faint 'config backup & restore  •  https://github.com/19Naveen/Hermes')" 2>&1 || true
+  else
+    cat <<'EOF' 2>&1 || true
+ ██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗
+ ██║  ██║██╔════╝██╔══██╗████╗ ████║██╔════╝██╔════╝
+ ███████║█████╗  ██████╔╝██╔████╔██║█████╗  ███████╗
+ ██╔══██║██╔══╝  ██╔══██╗██║╚██╔╝██║██╔══╝  ╚════██║
+ ██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗███████║
+ ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝
+          config backup & restore
+EOF
+  fi
+}
+
 [[ $EUID -eq 0 ]] && die "don't run as root — install as your user"
+
+has_tty() { [[ -t 0 || -t 1 ]] || (exec 3<> /dev/tty) 2>/dev/null; }
+step() {
+  if command -v gum >/dev/null 2>&1 && has_tty; then
+    gum style --foreground 212 --bold "▸ $*" 2>&1 || say "$*"
+  else
+    say "$*"
+  fi
+}
+
+# Show banner immediately — even when piped via curl|bash, stdout is still the terminal
+hermes_banner
+# Also set terminal title
+printf '\033]0;HERMES — setup\007' 2>/dev/null || true
+if command -v gum >/dev/null 2>&1 && has_tty; then
+  gum style --faint --align center --width 62 "Interactive installer — press ctrl+c to cancel at any time" 2>&1 || true
+fi
 
 # --- locate source (repo checkout or download) -----------------------------
 SRC=""
 if [[ "$(basename "$0")" == "setup.sh" && -f "$(dirname "$0")/hermes" ]]; then
   SRC="$(cd "$(dirname "$0")" && pwd)"
 else
-  say "Downloading hermes…"
   SRC="$(mktemp -d)"
   trap 'rm -rf "$SRC"' EXIT
-  git clone -q --depth 1 "$TOOL_REPO" "$SRC" || die "download failed — check your internet"
+  if command -v gum >/dev/null 2>&1; then
+    gum spin --title "Downloading hermes…" -- git clone -q --depth 1 "$TOOL_REPO" "$SRC" || die "download failed — check your internet"
+  else
+    say "Downloading hermes…"
+    git clone -q --depth 1 "$TOOL_REPO" "$SRC" || die "download failed — check your internet"
+  fi
 fi
 
 # --- dependencies -----------------------------------------------------------
