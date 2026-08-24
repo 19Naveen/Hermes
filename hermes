@@ -4,6 +4,7 @@
 # entrypoint only — logic lives in lib/
 
 set -euo pipefail
+printf '\033]0;HERMES\007'
 
 SELF="$(readlink -f "$0")"
 LIB="${HERMES_LIB:-$(dirname "$SELF")/../share/hermes/lib}"

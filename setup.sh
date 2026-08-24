@@ -31,19 +31,156 @@ else
 fi
 
 # --- dependencies -----------------------------------------------------------
-missing=()
-for dep in git rsync gpg gum; do
-  command -v "$dep" >/dev/null || missing+=("$dep")
-done
-if ((${#missing[@]})); then
-  say "Missing dependencies: ${missing[*]}"
-  echo "  Debian/Ubuntu: sudo apt install git rsync gnupg"
-  echo "    gum:         curl -fsSL https://github.com/charmbracelet/gum/releases/latest/download/gum_Linux_x86_64.tar.gz | tar xz -C /tmp && sudo install -m755 /tmp/gum_*/gum /usr/local/bin/gum"
-  echo "  Fedora/RHEL:   sudo dnf install git rsync gnupg  (+ gum from charm releases)"
-  echo "  Arch:          sudo pacman -S git rsync gnupg gum"
-  die "install these and re-run setup"
-fi
-ok "dependencies present"
+# Auto-installs missing deps: tries system package manager with sudo,
+# falls back to user-local installs (no sudo) via apt download + GitHub releases.
+# Never dies on missing gpg — hermes works without it (only `hermes secret` needs it).
+
+BIN_DIR="$HOME/.local/bin"
+mkdir -p "$BIN_DIR"
+export PATH="$BIN_DIR:$PATH"
+
+install_gum_local() {
+  say "Installing gum to $BIN_DIR/gum (no sudo)…"
+  local tmp arch url ver
+  tmp=$(mktemp -d)
+  arch=$(uname -m); case $arch in x86_64|amd64) arch="x86_64" ;; aarch64|arm64) arch="arm64" ;; armv7*) arch="armv7" ;; *) arch="x86_64" ;; esac
+  # try API for latest, fallback to known good version
+  ver=$(curl -fsSL https://api.github.com/repos/charmbracelet/gum/releases/latest 2>/dev/null | grep -o '"tag_name": "v[^"]*"' | head -1 | sed -E 's/.*"v([^"]+)".*/\1/' || true)
+  [[ -n $ver ]] || ver="2.0.0"
+  for url in \
+    "https://github.com/charmbracelet/gum/releases/download/v${ver}/gum_${ver}_Linux_${arch}.tar.gz" \
+    "https://github.com/charmbracelet/gum/releases/download/v0.14.4/gum_0.14.4_Linux_${arch}.tar.gz"; do
+    if curl -fsSL "$url" -o "$tmp/gum.tar.gz" 2>/dev/null && tar xzf "$tmp/gum.tar.gz" -C "$tmp" 2>/dev/null; then
+      local bin; bin=$(find "$tmp" -type f -name "gum" | head -n1)
+      if [[ -n $bin ]]; then install -m755 "$bin" "$BIN_DIR/gum" && ok "installed gum $ver → $BIN_DIR/gum" && rm -rf "$tmp" && return 0; fi
+    fi
+  done
+  rm -rf "$tmp"; return 1
+}
+
+install_rsync_local() {
+  say "Installing rsync to $BIN_DIR/rsync (no sudo)…"
+  local tmp deb
+  tmp=$(mktemp -d)
+  if command -v apt >/dev/null 2>&1; then
+    (cd "$tmp" && apt download rsync 2>/dev/null) || return 1
+    deb=$(find "$tmp" -name "rsync*.deb" | head -n1)
+    [[ -n $deb ]] || return 1
+    dpkg-deb -x "$deb" "$tmp/extract" 2>/dev/null || return 1
+    install -m755 "$tmp/extract/usr/bin/rsync" "$BIN_DIR/rsync" 2>/dev/null && ok "installed rsync → $BIN_DIR/rsync" && rm -rf "$tmp" && return 0
+  fi
+  rm -rf "$tmp"; return 1
+}
+
+install_gpg_local() {
+  say "Installing gpg to $BIN_DIR/gpg (no sudo, with wrappers)…"
+  local tmp
+  tmp=$(mktemp -d)
+  if ! command -v apt >/dev/null 2>&1; then rm -rf "$tmp"; return 1; fi
+  (cd "$tmp" && apt download gpg gpg-agent dirmngr gpgsm gpgconf libassuan9 libnpth0t64 2>/dev/null) || { rm -rf "$tmp"; return 1; }
+  mkdir -p "$tmp/extract" "$HOME/.local/lib"
+  for deb in "$tmp"/*.deb; do dpkg-deb -x "$deb" "$tmp/extract" 2>/dev/null || true; done
+  # libs
+  cp -f "$tmp/extract/usr/lib/"*"/libassuan"* "$HOME/.local/lib/" 2>/dev/null || true
+  cp -f "$tmp/extract/usr/lib/"*"/libnpth"* "$HOME/.local/lib/" 2>/dev/null || true
+  # bins — wrap to inject LD_LIBRARY_PATH
+  for bin in gpg gpg-agent dirmngr gpgsm gpgconf gpg-connect-agent dirmngr-client; do
+    if [[ -f "$tmp/extract/usr/bin/$bin" ]]; then
+      install -m755 "$tmp/extract/usr/bin/$bin" "$BIN_DIR/$bin.bin" 2>/dev/null || true
+      cat > "$BIN_DIR/$bin" <<EOS
+#!/bin/sh
+export LD_LIBRARY_PATH="\$HOME/.local/lib\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
+exec "\$HOME/.local/bin/$bin.bin" "\$@"
+EOS
+      chmod +x "$BIN_DIR/$bin"
+    fi
+  done
+  rm -rf "$tmp"
+  command -v gpg >/dev/null && gpg --version >/dev/null 2>&1 && ok "installed gpg → $BIN_DIR/gpg" && return 0
+  return 1
+}
+
+ensure_deps() {
+  local missing=() pkg
+  for dep in git rsync gpg gum; do command -v "$dep" >/dev/null || missing+=("$dep"); done
+  ((${#missing[@]}==0)) && { ok "dependencies present"; return 0; }
+
+  say "Missing dependencies: ${missing[*]} — attempting auto-install…"
+
+  # 1) try system package manager if sudo is available
+  local pkgs=() has_apt=0 has_dnf=0 has_pacman=0
+  command -v apt >/dev/null && has_apt=1
+  command -v dnf >/dev/null && has_dnf=1
+  command -v pacman >/dev/null && has_pacman=1
+
+  for dep in "${missing[@]}"; do
+    case $dep in
+      git)   pkgs+=(git) ;;
+      rsync) pkgs+=(rsync) ;;
+      gpg)   pkgs+=(gnupg) ;;
+      gum)   pkgs+=(gum) ;;
+    esac
+  done
+
+  if (( has_apt || has_dnf || has_pacman )); then
+    local can_sudo=0
+    if sudo -n true 2>/dev/null; then
+      can_sudo=1
+      say "Trying system install with sudo (cached) for: ${pkgs[*]}…"
+    elif [[ -e /dev/tty ]]; then
+      say "Need sudo to install: ${pkgs[*]}"
+      # cache credentials via /dev/tty so curl|bash still prompts correctly
+      if sudo -v < /dev/tty > /dev/tty 2>&1; then
+        can_sudo=1
+      else
+        warn "sudo denied — falling back to user-local installs"
+      fi
+    else
+      warn "no tty for sudo — will try user-local installs"
+    fi
+    if (( can_sudo )); then
+      if (( has_apt )); then
+        sudo apt update -qq 2>/dev/null || sudo apt update
+        sudo apt install -y "${pkgs[@]}" 2>&1 | tail -n 20 || true
+      elif (( has_dnf )); then sudo dnf install -y "${pkgs[@]}" 2>&1 | tail -n 20 || true
+      elif (( has_pacman )); then sudo pacman -Sy --noconfirm "${pkgs[@]}" 2>&1 | tail -n 20 || true
+      fi
+    fi
+  fi
+
+  # 2) fallback: user-local installs for anything still missing
+  for dep in git rsync gpg gum; do
+    if ! command -v "$dep" >/dev/null; then
+      case $dep in
+        gum)   install_gum_local || warn "gum auto-install failed — install manually: https://github.com/charmbracelet/gum" ;;
+        rsync) install_rsync_local || warn "rsync auto-install failed — try: sudo apt install rsync" ;;
+        gpg)   install_gpg_local || warn "gpg auto-install failed — try: sudo apt install gnupg (only needed for 'hermes secret')" ;;
+        git)   warn "git still missing — please install git manually" ;;
+      esac
+    fi
+  done
+
+  # 3) final check — only hard-fail on rsync/gum (core), gpg is optional
+  local still_missing=() core_missing=()
+  for dep in git rsync gpg gum; do command -v "$dep" >/dev/null || still_missing+=("$dep"); done
+  for dep in "${still_missing[@]}"; do [[ $dep == gpg ]] || core_missing+=("$dep"); done
+
+  if ((${#core_missing[@]})); then
+    say "Still missing core dependencies: ${core_missing[*]}"
+    echo "  Debian/Ubuntu: sudo apt install git rsync gnupg gum"
+    echo "  Fedora/RHEL:   sudo dnf install git rsync gnupg  (+ gum from charm releases)"
+    echo "  Arch:          sudo pacman -S git rsync gnupg gum"
+    echo "  Or re-run with sudo, or install gum locally via the installer fallback."
+    die "install these and re-run setup"
+  fi
+  if ((${#still_missing[@]})); then
+    warn "Optional dependency missing: ${still_missing[*]} — continuing (only 'hermes secret' needs gpg)"
+  else
+    ok "dependencies present (auto-installed)"
+  fi
+}
+
+ensure_deps
 
 # --- install binary + lib ---------------------------------------------------
 mkdir -p "$BIN_DIR" "$SHARE_DIR"
@@ -72,24 +209,82 @@ fi
 ok "zsh completions installed"
 
 # --- dotfiles repo: ask → verify → clone/init ----------------------------------
+# Supports: HERMES_DOTFILES env (for curl|bash non-interactive), gum input, or classic read.
+# When piped (curl|bash) but with a tty, we read/write via /dev/tty so the prompt isn't lost.
 DOTFILES_URL="${HERMES_DOTFILES:-}"
-ask_url() {
-  printf '\033[1;35m⚡\033[0m git url of YOUR private dotfiles repo\n   (e.g. git@github.com:YOU/dotfiles.git — created via github.com/new, keep it Private): '
-  read -r DOTFILES_URL < /dev/tty || DOTFILES_URL=""
+
+has_tty() { [[ -t 0 || -t 1 ]] || (exec 3<> /dev/tty) 2>/dev/null; }
+
+normalize_url() {
+  local url=$(echo "$1" | xargs); url=${url%/}
+  if [[ $url =~ ^github\.com[:/] ]]; then
+    local path=${url#github.com:}; path=${path#github.com/}
+    url="https://github.com/$path"
+  elif [[ $url =~ ^[^/:]+/[^/]+$ ]]; then
+    url="https://github.com/$url"
+  fi
+  echo "$url"
 }
-[[ -n ${DOTFILES_URL// } ]] || ask_url
+
+# Reuse already-configured remote if present (handles "already configured github" — don't ask again)
+if [[ -z "${DOTFILES_URL// }" ]]; then
+  _existing_remote=$(git -C "$REPO" config hermes.remote 2>/dev/null || true)
+  if [[ -n "${_existing_remote:-}" ]]; then
+    if GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=echo git ls-remote "$_existing_remote" HEAD >/dev/null 2>&1 || GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=echo git ls-remote "${_existing_remote}.git" HEAD >/dev/null 2>&1; then
+      say "✔ already configured: $_existing_remote (reusing — run 'hermes remote <url>' to change)"
+      DOTFILES_URL="$_existing_remote"
+    else
+      # check if ssh is working but https wasn't — hint
+      if [[ $_existing_remote == https://* ]] && ssh -o BatchMode=yes -o ConnectTimeout=5 -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
+        warn "existing remote $_existing_remote not reachable via https, but SSH auth is working — consider: hermes remote git@github.com:\${_existing_remote#https://github.com/}"
+      fi
+    fi
+  fi
+  unset _existing_remote
+fi
+
+if [[ -z "${DOTFILES_URL// }" ]]; then
+  if ! has_tty; then
+    # truly non-interactive (CI/no tty) — skip prompt entirely, no noise
+    DOTFILES_URL=""
+  elif command -v gum >/dev/null 2>&1; then
+    # gum gives nicer UX; supports ssh (git@) and https, plus shorthand USER/REPO
+    DOTFILES_URL=$(gum input --placeholder "git@github.com:YOU/dotfiles.git or https://github.com/YOU/dotfiles.git (empty to skip)" --prompt "⚡ Private dotfiles repo URL: " --width 70 < /dev/tty > /dev/tty 2>&1 || true)
+    DOTFILES_URL=$(echo "$DOTFILES_URL" | xargs 2>/dev/null || echo "$DOTFILES_URL")
+  else
+    printf '\033[1;35m⚡\033[0m git url of YOUR private dotfiles repo\n   ssh:  git@github.com:YOU/dotfiles.git\n   https: https://github.com/YOU/dotfiles.git (private: use https://TOKEN@github.com/YOU/dotfiles.git or gh auth login)\n   (create via github.com/new, keep it Private): ' > /dev/tty 2>&1 || true
+    read -r DOTFILES_URL < /dev/tty > /dev/tty 2>&1 || DOTFILES_URL=""
+  fi
+fi
 
 mkdir -p "$REPO/configs"
-while [[ -n ${DOTFILES_URL// } ]] && ! git ls-remote "$DOTFILES_URL" HEAD >/dev/null 2>&1; do
+while [[ -n ${DOTFILES_URL// } ]] && ! GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=echo git ls-remote "$DOTFILES_URL" HEAD >/dev/null 2>&1 && ! GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=echo git ls-remote "${DOTFILES_URL}.git" HEAD >/dev/null 2>&1; do
   warn "cannot access $DOTFILES_URL"
-  echo "  · does the repo exist on GitHub?"
-  echo "  · is your SSH key added? https://github.com/settings/keys"
-  echo "  · test it:            ssh -T git@github.com"
-  printf 'Try another url (or empty to set up later): '
-  read -r DOTFILES_URL < /dev/tty || DOTFILES_URL=""
+  if [[ $DOTFILES_URL == https://* ]]; then
+    echo "  · for private https: use https://TOKEN@github.com/YOU/dotfiles.git or run: gh auth login"
+    echo "  · or switch to ssh: git@github.com:YOU/dotfiles.git (needs SSH key on github.com/settings/keys)"
+  elif [[ $DOTFILES_URL == git@* || $DOTFILES_URL == ssh://* ]]; then
+    echo "  · is your SSH key added? https://github.com/settings/keys"
+    echo "  · test it:            ssh -T git@github.com"
+    echo "  · or try https: https://github.com/YOU/dotfiles.git"
+  else
+    echo "  · does the repo exist on GitHub?"
+    echo "  · ssh:  git@github.com:YOU/dotfiles.git  (SSH key) | https: https://github.com/YOU/dotfiles.git (token/gh auth)"
+  fi
+  if ! has_tty; then
+    DOTFILES_URL=""; break
+  elif command -v gum >/dev/null 2>&1; then
+    DOTFILES_URL=$(gum input --placeholder "git@github.com:YOU/dotfiles.git or https://github.com/YOU/dotfiles.git (empty to skip)" --prompt "Try another URL: " --width 70 < /dev/tty > /dev/tty 2>&1 || true)
+    DOTFILES_URL=$(echo "$DOTFILES_URL" | xargs 2>/dev/null || echo "$DOTFILES_URL")
+  else
+    printf 'Try another url (or empty to set up later): ' > /dev/tty 2>&1 || true
+    read -r DOTFILES_URL < /dev/tty > /dev/tty 2>&1 || DOTFILES_URL=""
+  fi
 done
 
 if [[ -n ${DOTFILES_URL// } ]]; then
+  # normalize shorthand (USER/REPO, github.com/USER/REPO) to https
+  DOTFILES_URL=$(normalize_url "$DOTFILES_URL")
   git -C "$REPO" config hermes.remote "$DOTFILES_URL"
   if git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1 && [[ $(ls -A "$REPO" | grep -vc '^\.') -gt 2 ]]; then
     # existing repo with content — pull instead of clobbering
@@ -101,16 +296,41 @@ if [[ -n ${DOTFILES_URL// } ]]; then
     git -C "$REPO" push -q origin HEAD 2>/dev/null && ok "pushed local backups to $DOTFILES_URL" ||
       warn "couldn't push existing local backups — run: git -C $REPO push origin HEAD"
   else
-    say "Cloning your dotfiles…"
+    say "Cloning your dotfiles… ($DOTFILES_URL)"
     rm -rf "$REPO"
-    git clone -q "$DOTFILES_URL" "$REPO" || die "clone failed unexpectedly"
+    if [[ $DOTFILES_URL == https://* ]]; then
+      GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=echo git clone -q "$DOTFILES_URL" "$REPO" || {
+        # if https failed but ssh works, hint
+        if ssh -o BatchMode=yes -o ConnectTimeout=5 -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
+          die "clone failed — https needs a token (https://TOKEN@github.com/... or 'gh auth login'), but your SSH is working so try: git@github.com:${DOTFILES_URL#https://github.com/}"
+        else
+          die "clone failed — https private repo needs token or gh auth login; or use ssh: git@github.com:\${DOTFILES_URL#https://github.com/}"
+        fi
+      }
+    else
+      GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=echo git clone -q "$DOTFILES_URL" "$REPO" || die "clone failed — check ssh key: ssh -T git@github.com"
+    fi
     git -C "$REPO" config hermes.remote "$DOTFILES_URL"
   fi
   ok "dotfiles repo verified & ready: $DOTFILES_URL"
+  if [[ $DOTFILES_URL == https://* ]]; then
+    echo "  tip: ssh alternative is git@github.com:${DOTFILES_URL#https://github.com/}"
+  elif [[ $DOTFILES_URL == git@* ]]; then
+    echo "  tip: https alternative is https://github.com/${DOTFILES_URL#git@github.com:}"
+  fi
 else
   warn "skipped repo setup — when ready:"
   echo "  1. create a PRIVATE repo on github.com/new"
-  echo "  2. hermes remote git@github.com:YOU/dotfiles.git"
+  echo "  2. hermes remote git@github.com:YOU/dotfiles.git          # ssh (needs SSH key)"
+  echo "     hermes remote https://github.com/YOU/dotfiles.git      # https (needs token or gh auth login)"
+  echo "     or non-interactive:"
+  echo "       HERMES_DOTFILES=git@github.com:YOU/dotfiles.git curl -fsSL $TOOL_REPO/raw/master/setup.sh | bash"
+  echo "       HERMES_DOTFILES=https://TOKEN@github.com/YOU/dotfiles.git curl -fsSL $TOOL_REPO/raw/master/setup.sh | bash"
 fi
 
-say "Done! Try: hermes backup   (or: hermes install)"
+# pipe-aware footer — don't pollute pipe stdout
+if has_tty; then
+  say "Done! Try: hermes backup   (or: hermes install)"
+else
+  say "Done! (non-interactive) Try: hermes backup"
+fi

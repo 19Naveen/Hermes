@@ -9,8 +9,14 @@ ok()   { gum style --foreground 2 "✔ $*"; }
 warn() { gum style --foreground 3 "⚠ $*"; }
 
 banner() {
-  gum style --border rounded --border-foreground 99 --align center --width 40 \
-    "$(gum style --bold --foreground 99 '⚡ H E R M E S')" \
+  printf '\033]0;HERMES\007'
+  gum style --border rounded --border-foreground 99 --align center --width 62 \
+    "$(gum style --bold --foreground 99 '██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗')" \
+    "$(gum style --bold --foreground 99 '██║  ██║██╔════╝██╔══██╗████╗ ████║██╔════╝██╔════╝')" \
+    "$(gum style --bold --foreground 99 '███████║█████╗  ██████╔╝██╔████╔██║█████╗  ███████╗')" \
+    "$(gum style --bold --foreground 99 '██╔══██║██╔══╝  ██╔══██╗██║╚██╔╝██║██╔══╝  ╚════██║')" \
+    "$(gum style --bold --foreground 99 '██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗███████║')" \
+    "$(gum style --bold --foreground 99 '╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝')" \
     "$(gum style --faint 'config backup & restore')"
 }
 
@@ -39,10 +45,62 @@ ensure_repo() {
 dotfiles_url() { git -C "$REPO" config hermes.remote 2>/dev/null || true; }
 
 # check_auth <url> — prove the user can actually talk to this remote
+# Supports: ssh (git@github.com:USER/REPO.git, ssh://) and https (https://github.com/USER/REPO.git)
+# Also handles shorthand github.com/USER/REPO or USER/REPO, auto-appends .git if needed.
+# Uses GIT_TERMINAL_PROMPT=0 to avoid interactive Username/Password prompts.
 check_auth() {
   local url=$1
-  [[ $url =~ ^(git@|ssh://|https://) ]] || { warn "odd url format: $url"; return 1; }
-  git ls-remote "$url" HEAD >/dev/null 2>&1
+  url=$(echo "$url" | xargs)          # trim
+  url=${url%/}                         # strip trailing slash
+  # normalize shorthand forms
+  if [[ $url =~ ^(git@|ssh://|https?://|git://) ]]; then
+    : # already fully qualified
+  elif [[ $url =~ ^github\.com[:/] ]]; then
+    # strip github.com: or github.com/ prefix → USER/REPO
+    local path=${url#github.com:}
+    path=${path#github.com/}
+    url="https://github.com/$path"
+  elif [[ $url =~ ^[^/:]+/[^/]+$ ]]; then
+    # USER/REPO shorthand
+    url="https://github.com/$url"
+  else
+    warn "odd url format: $url"
+    echo "  expected: git@github.com:USER/REPO.git (ssh) or https://github.com/USER/REPO.git (https)" >&2
+    return 1
+  fi
+  # avoid interactive username/password prompts — fail fast
+  local git_env="GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=echo"
+  # try as-is, then with .git suffix
+  if env $git_env git ls-remote "$url" HEAD >/dev/null 2>&1; then return 0; fi
+  if [[ $url != *.git ]]; then
+    env $git_env git ls-remote "$url.git" HEAD >/dev/null 2>&1 && return 0
+  fi
+  return 1
+}
+
+# has_github_auth — quick check if user already has GitHub auth (ssh or gh)
+has_github_auth() {
+  # ssh: BatchMode avoids password prompt
+  if ssh -o BatchMode=yes -o ConnectTimeout=5 -T git@github.com 2>&1 | grep -q "successfully authenticated"; then return 0; fi
+  # gh cli
+  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then return 0; fi
+  # credential helper cached
+  if git credential fill >/dev/null 2>&1 <<<"protocol=https
+host=github.com
+" | grep -q "username="; then return 0; fi
+  return 1
+}
+
+# normalize_url <url> — return canonical url
+normalize_url() {
+  local url=$(echo "$1" | xargs); url=${url%/}
+  if [[ $url =~ ^github\.com[:/] ]]; then
+    local path=${url#github.com:}; path=${path#github.com/}
+    url="https://github.com/$path"
+  elif [[ $url =~ ^[^/:]+/[^/]+$ ]]; then
+    url="https://github.com/$url"
+  fi
+  echo "$url"
 }
 
 pull_latest() {
@@ -82,4 +140,4 @@ push_latest() {
 # gum spin execs its argument as an external binary and can't see shell
 # functions or unexported vars — export both.
 export REPO
-export -f pull_latest push_latest check_auth
+export -f pull_latest push_latest check_auth normalize_url has_github_auth

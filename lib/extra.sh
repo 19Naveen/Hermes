@@ -7,13 +7,28 @@ do_list() {
 }
 
 do_remote() {
-  [[ -n ${2:-} ]] || die "usage: hermes remote <git-url>"
-  local url=$2
+  [[ -n ${2:-} ]] || die "usage: hermes remote <git-url>  (ssh: git@github.com:USER/REPO.git  or https: https://github.com/USER/REPO.git)"
+  local url=$2 norm
+  norm=$(normalize_url "$url")
+  # prefer normalized for storage but keep original if user used ssh
+  [[ $url == git@* || $url == ssh://* ]] && norm="$url"
   ensure_repo
-  gum spin --title "Checking access to $url…" -- bash -c "check_auth '$url'" \
-    || die "cannot access $url — add your SSH key on github.com/settings/keys first"
-  git -C "$REPO" config hermes.remote "$url"
-  ok "remote saved and verified: $url"
+  if ! gum spin --title "Checking access to $url…" -- bash -c "check_auth '$url'"; then
+    if [[ $url == https://* ]]; then
+      die "cannot access $url — for private https repos: use a token (https://TOKEN@github.com/USER/REPO.git) or 'gh auth login', or switch to ssh: git@github.com:USER/REPO.git"
+    elif [[ $url == git@* || $url == ssh://* ]]; then
+      die "cannot access $url — add your SSH key on github.com/settings/keys, test with: ssh -T git@github.com"
+    else
+      die "cannot access $url — check the url and your auth (ssh key or https token)"
+    fi
+  fi
+  git -C "$REPO" config hermes.remote "$norm"
+  ok "remote saved and verified: $norm"
+  if [[ $norm == https://* ]]; then
+    echo "  (ssh alternative: git@github.com:${norm#https://github.com/})"
+  elif [[ $norm == git@github.com:* ]]; then
+    echo "  (https alternative: https://github.com/${norm#git@github.com:})"
+  fi
 }
 
 do_update() {
@@ -65,8 +80,16 @@ EOF
 }
 
 usage() {
+  # set terminal title to HERMES
+  printf '\033]0;HERMES\007'
   cat <<EOF
-⚡ hermes — config backup & restore ($TOOL_REPO)
+██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗
+██║  ██║██╔════╝██╔══██╗████╗ ████║██╔════╝██╔════╝
+███████║█████╗  ██████╔╝██╔████╔██║█████╗  ███████╗
+██╔══██║██╔══╝  ██╔══██╗██║╚██╔╝██║██╔══╝  ╚════██║
+██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗███████║
+╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝
+ — config backup & restore ($TOOL_REPO)
 
   hermes backup            pick installed configs → commit & push
   hermes install           pick stored configs → install locally
