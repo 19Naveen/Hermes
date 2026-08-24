@@ -271,17 +271,25 @@ normalize_url() {
   echo "$url"
 }
 
+# Interactive header for dotfiles step — Hermes styled
+if command -v gum >/dev/null 2>&1 && has_tty; then
+  gum style --border rounded --border-foreground 99 --align center --width 62 --margin "1 0" \
+    "$(gum style --bold --foreground 212 '◆ Dotfiles Repository')" \
+    "$(gum style --faint 'Where your configs will live — private GitHub repo')" \
+    "$(gum style --faint 'ssh: git@github.com:YOU/dotfiles.git  •  https: https://github.com/YOU/dotfiles.git')" 2>&1 || true
+fi
+
 # Reuse already-configured remote if present (handles "already configured github" — don't ask again)
 if [[ -z "${DOTFILES_URL// }" ]]; then
   _existing_remote=$(git -C "$REPO" config hermes.remote 2>/dev/null || true)
   if [[ -n "${_existing_remote:-}" ]]; then
-    if GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=echo git ls-remote "$_existing_remote" HEAD >/dev/null 2>&1 || GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=echo git ls-remote "${_existing_remote}.git" HEAD >/dev/null 2>&1; then
+    if GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=echo git ls-remote "$_existing_remote" >/dev/null 2>&1 || GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=echo git ls-remote "${_existing_remote}.git" >/dev/null 2>&1; then
       say "✔ already configured: $_existing_remote (reusing — run 'hermes remote <url>' to change)"
       DOTFILES_URL="$_existing_remote"
     else
       # check if ssh is working but https wasn't — hint
       if [[ $_existing_remote == https://* ]] && ssh -o BatchMode=yes -o ConnectTimeout=5 -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
-        warn "existing remote $_existing_remote not reachable via https, but SSH auth is working — consider: hermes remote git@github.com:\${_existing_remote#https://github.com/}"
+        warn "existing remote $_existing_remote not reachable via https, but SSH auth is working — consider: hermes remote git@github.com:${_existing_remote#https://github.com/}"
       fi
     fi
   fi
@@ -293,17 +301,17 @@ if [[ -z "${DOTFILES_URL// }" ]]; then
     # truly non-interactive (CI/no tty) — skip prompt entirely, no noise
     DOTFILES_URL=""
   elif command -v gum >/dev/null 2>&1; then
-    # gum gives nicer UX; supports ssh (git@) and https, plus shorthand USER/REPO
-    DOTFILES_URL=$(gum input --placeholder "git@github.com:YOU/dotfiles.git or https://github.com/YOU/dotfiles.git (empty to skip)" --prompt "⚡ Private dotfiles repo URL: " --width 70 < /dev/tty > /dev/tty 2>&1 || true)
+    # gum: stdin from /dev/tty (so curl|bash works), UI on stderr to /dev/tty, result on stdout captured
+    DOTFILES_URL=$(gum input --placeholder "git@github.com:YOU/dotfiles.git or https://github.com/YOU/dotfiles.git (empty to skip)" --prompt "⚡ Private dotfiles repo URL: " --width 70 < /dev/tty 2> /dev/tty || true)
     DOTFILES_URL=$(echo "$DOTFILES_URL" | xargs 2>/dev/null || echo "$DOTFILES_URL")
   else
     printf '\033[1;35m⚡\033[0m git url of YOUR private dotfiles repo\n   ssh:  git@github.com:YOU/dotfiles.git\n   https: https://github.com/YOU/dotfiles.git (private: use https://TOKEN@github.com/YOU/dotfiles.git or gh auth login)\n   (create via github.com/new, keep it Private): ' > /dev/tty 2>&1 || true
-    read -r DOTFILES_URL < /dev/tty > /dev/tty 2>&1 || DOTFILES_URL=""
+    read -r DOTFILES_URL < /dev/tty 2> /dev/tty || DOTFILES_URL=""
   fi
 fi
 
 mkdir -p "$REPO/configs"
-while [[ -n ${DOTFILES_URL// } ]] && ! GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=echo git ls-remote "$DOTFILES_URL" HEAD >/dev/null 2>&1 && ! GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=echo git ls-remote "${DOTFILES_URL}.git" HEAD >/dev/null 2>&1; do
+while [[ -n ${DOTFILES_URL// } ]] && ! GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=echo git ls-remote "$DOTFILES_URL" >/dev/null 2>&1 && ! GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=echo git ls-remote "${DOTFILES_URL}.git" >/dev/null 2>&1; do
   warn "cannot access $DOTFILES_URL"
   if [[ $DOTFILES_URL == https://* ]]; then
     echo "  · for private https: use https://TOKEN@github.com/YOU/dotfiles.git or run: gh auth login"
@@ -319,11 +327,11 @@ while [[ -n ${DOTFILES_URL// } ]] && ! GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=echo gi
   if ! has_tty; then
     DOTFILES_URL=""; break
   elif command -v gum >/dev/null 2>&1; then
-    DOTFILES_URL=$(gum input --placeholder "git@github.com:YOU/dotfiles.git or https://github.com/YOU/dotfiles.git (empty to skip)" --prompt "Try another URL: " --width 70 < /dev/tty > /dev/tty 2>&1 || true)
+    DOTFILES_URL=$(gum input --placeholder "git@github.com:YOU/dotfiles.git or https://github.com/YOU/dotfiles.git (empty to skip)" --prompt "Try another URL: " --width 70 < /dev/tty 2> /dev/tty || true)
     DOTFILES_URL=$(echo "$DOTFILES_URL" | xargs 2>/dev/null || echo "$DOTFILES_URL")
   else
     printf 'Try another url (or empty to set up later): ' > /dev/tty 2>&1 || true
-    read -r DOTFILES_URL < /dev/tty > /dev/tty 2>&1 || DOTFILES_URL=""
+    read -r DOTFILES_URL < /dev/tty 2> /dev/tty || DOTFILES_URL=""
   fi
 done
 
@@ -337,45 +345,81 @@ if [[ -n ${DOTFILES_URL// } ]]; then
     git -C "$REPO" remote add origin "$DOTFILES_URL"
     git -C "$REPO" pull -q origin HEAD 2>/dev/null || warn "pull failed — run 'git -C $REPO pull origin HEAD' manually"
     ok "linked existing backup repo to $DOTFILES_URL"
-  elif [[ $REPO/.git/exists ]] 2>/dev/null || git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1 && [[ -n $(git -C "$REPO" log --oneline -1 2>/dev/null) ]]; then
+  elif [[ -e $REPO/.git ]] || git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1 && [[ -n $(git -C "$REPO" log --oneline -1 2>/dev/null) ]]; then
     git -C "$REPO" push -q origin HEAD 2>/dev/null && ok "pushed local backups to $DOTFILES_URL" ||
       warn "couldn't push existing local backups — run: git -C $REPO push origin HEAD"
   else
-    say "Cloning your dotfiles… ($DOTFILES_URL)"
-    rm -rf "$REPO"
-    if [[ $DOTFILES_URL == https://* ]]; then
-      GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=echo git clone -q "$DOTFILES_URL" "$REPO" || {
-        # if https failed but ssh works, hint
-        if ssh -o BatchMode=yes -o ConnectTimeout=5 -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
-          die "clone failed — https needs a token (https://TOKEN@github.com/... or 'gh auth login'), but your SSH is working so try: git@github.com:${DOTFILES_URL#https://github.com/}"
+    if command -v gum >/dev/null 2>&1 && has_tty; then
+      gum spin --title "Cloning your dotfiles… ($DOTFILES_URL)" -- bash -c "
+        rm -rf \"$REPO\"
+        if [[ \"$DOTFILES_URL\" == https://* ]]; then
+          GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=echo git clone -q \"$DOTFILES_URL\" \"$REPO\"
         else
-          die "clone failed — https private repo needs token or gh auth login; or use ssh: git@github.com:\${DOTFILES_URL#https://github.com/}"
+          GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=echo git clone -q \"$DOTFILES_URL\" \"$REPO\"
+        fi
+      " || {
+        if [[ $DOTFILES_URL == https://* ]] && ssh -o BatchMode=yes -o ConnectTimeout=5 -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
+          die "clone failed — https needs a token (https://TOKEN@github.com/... or 'gh auth login'), but SSH works, try: git@github.com:${DOTFILES_URL#https://github.com/}"
+        elif [[ $DOTFILES_URL == https://* ]]; then
+          die "clone failed — https private repo needs token or gh auth login; or use ssh: git@github.com:${DOTFILES_URL#https://github.com/}"
+        else
+          die "clone failed — check ssh key: ssh -T git@github.com"
         fi
       }
     else
-      GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=echo git clone -q "$DOTFILES_URL" "$REPO" || die "clone failed — check ssh key: ssh -T git@github.com"
+      say "Cloning your dotfiles… ($DOTFILES_URL)"
+      rm -rf "$REPO"
+      if [[ $DOTFILES_URL == https://* ]]; then
+        GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=echo git clone -q "$DOTFILES_URL" "$REPO" || {
+          if ssh -o BatchMode=yes -o ConnectTimeout=5 -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
+            die "clone failed — https needs a token (https://TOKEN@github.com/... or 'gh auth login'), but SSH works, try: git@github.com:${DOTFILES_URL#https://github.com/}"
+          else
+            die "clone failed — https private repo needs token or gh auth login; or use ssh: git@github.com:${DOTFILES_URL#https://github.com/}"
+          fi
+        }
+      else
+        GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=echo git clone -q "$DOTFILES_URL" "$REPO" || die "clone failed — check ssh key: ssh -T git@github.com"
+      fi
     fi
     git -C "$REPO" config hermes.remote "$DOTFILES_URL"
   fi
-  ok "dotfiles repo verified & ready: $DOTFILES_URL"
+  if command -v gum >/dev/null 2>&1 && has_tty; then
+    gum style --border rounded --border-foreground 2 --align center --width 62 --margin "1 0" \
+      "$(gum style --bold --foreground 2 '✔ Dotfiles ready: '"$DOTFILES_URL")" \
+      "$(gum style --faint 'Run: hermes backup  •  hermes install')" 2>&1 || ok "dotfiles repo verified & ready: $DOTFILES_URL"
+  else
+    ok "dotfiles repo verified & ready: $DOTFILES_URL"
+  fi
   if [[ $DOTFILES_URL == https://* ]]; then
     echo "  tip: ssh alternative is git@github.com:${DOTFILES_URL#https://github.com/}"
   elif [[ $DOTFILES_URL == git@* ]]; then
     echo "  tip: https alternative is https://github.com/${DOTFILES_URL#git@github.com:}"
   fi
 else
-  warn "skipped repo setup — when ready:"
-  echo "  1. create a PRIVATE repo on github.com/new"
-  echo "  2. hermes remote git@github.com:YOU/dotfiles.git          # ssh (needs SSH key)"
-  echo "     hermes remote https://github.com/YOU/dotfiles.git      # https (needs token or gh auth login)"
-  echo "     or non-interactive:"
-  echo "       HERMES_DOTFILES=git@github.com:YOU/dotfiles.git curl -fsSL $TOOL_REPO/raw/master/setup.sh | bash"
-  echo "       HERMES_DOTFILES=https://TOKEN@github.com/YOU/dotfiles.git curl -fsSL $TOOL_REPO/raw/master/setup.sh | bash"
+  if command -v gum >/dev/null 2>&1 && has_tty; then
+    gum style --border rounded --border-foreground 3 --align center --width 62 --margin "1 0" \
+      "$(gum style --bold --foreground 3 '⚠ Skipped dotfiles setup')" \
+      "$(gum style --faint 'Create a private repo, then:')" \
+      "$(gum style --faint 'hermes remote git@github.com:YOU/dotfiles.git')" 2>&1 || true
+    echo "  or: hermes remote https://github.com/YOU/dotfiles.git"
+    echo "  non-interactive:"
+    echo "    HERMES_DOTFILES=git@github.com:YOU/dotfiles.git curl -fsSL $TOOL_REPO/raw/master/setup.sh | bash"
+  else
+    warn "skipped repo setup — when ready:"
+    echo "  1. create a PRIVATE repo on github.com/new"
+    echo "  2. hermes remote git@github.com:YOU/dotfiles.git          # ssh (needs SSH key)"
+    echo "     hermes remote https://github.com/YOU/dotfiles.git      # https (needs token or gh auth login)"
+    echo "     or non-interactive:"
+    echo "       HERMES_DOTFILES=git@github.com:YOU/dotfiles.git curl -fsSL $TOOL_REPO/raw/master/setup.sh | bash"
+    echo "       HERMES_DOTFILES=https://TOKEN@github.com/YOU/dotfiles.git curl -fsSL $TOOL_REPO/raw/master/setup.sh | bash"
+  fi
 fi
 
-# pipe-aware footer — don't pollute pipe stdout
-if has_tty; then
-  say "Done! Try: hermes backup   (or: hermes install)"
+# Interactive footer — Hermes styled
+if command -v gum >/dev/null 2>&1 && has_tty; then
+  gum style --border rounded --border-foreground 99 --align center --width 62 --margin "1 0" \
+    "$(gum style --bold --foreground 99 'H E R M E S — ready')" \
+    "$(gum style --faint 'hermes backup  •  hermes install  •  hermes list')" 2>&1 || true
 else
-  say "Done! (non-interactive) Try: hermes backup"
+  say "Done! Try: hermes backup   (or: hermes install)"
 fi

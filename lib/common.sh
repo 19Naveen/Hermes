@@ -70,10 +70,10 @@ check_auth() {
   fi
   # avoid interactive username/password prompts — fail fast
   local git_env="GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=echo"
-  # try as-is, then with .git suffix
-  if env $git_env git ls-remote "$url" HEAD >/dev/null 2>&1; then return 0; fi
+  # try as-is, then with .git suffix — no HEAD so empty repos pass
+  if env $git_env git ls-remote "$url" >/dev/null 2>&1; then return 0; fi
   if [[ $url != *.git ]]; then
-    env $git_env git ls-remote "$url.git" HEAD >/dev/null 2>&1 && return 0
+    env $git_env git ls-remote "$url.git" >/dev/null 2>&1 && return 0
   fi
   return 1
 }
