@@ -3,7 +3,17 @@
 
 do_list() {
   ensure_repo
-  ls -1 "$REPO/configs" 2>/dev/null || echo "empty"
+  local cfgs=()
+  mapfile -t cfgs < <(ls -1 "$REPO/configs" 2>/dev/null || true)
+  if (( ${#cfgs[@]} == 0 )) || [[ -z "${cfgs[0]:-}" ]]; then
+    gum style --foreground 3 "No configs backed up yet" 2>&1 || echo "No configs backed up yet"
+    echo "  Run: hermes backup"
+    echo "  Repo: $REPO/configs"
+    return 0
+  fi
+  printf '%s\n' "${cfgs[@]}"
+  echo ""
+  gum style --faint "${#cfgs[@]} config(s) in $REPO/configs" 2>&1 || true
 }
 
 do_remote() {

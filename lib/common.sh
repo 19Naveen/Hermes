@@ -35,9 +35,20 @@ human_size() {
 }
 
 ensure_repo() {
-  if [[ ! -d $REPO ]]; then
-    mkdir -p "$REPO/configs" && git -C "$REPO" init -q
-    echo ".git" > "$REPO/.gitignore"
+  if [[ ! -d $REPO/.git ]]; then
+    mkdir -p "$REPO/configs"
+    # init if not already a git repo (covers existing dir without .git)
+    if ! git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1; then
+      git init -q "$REPO" 2>/dev/null || git -C "$REPO" init -q 2>/dev/null || {
+        rm -rf "$REPO/.git" 2>/dev/null; git init -q "$REPO"
+      }
+    fi
+    [[ -f $REPO/.gitignore ]] || echo ".git" > "$REPO/.gitignore"
+    # ensure initial commit exists so remote can be added later
+    if ! git -C "$REPO" rev-parse HEAD >/dev/null 2>&1; then
+      git -C "$REPO" add .gitignore 2>/dev/null || true
+      git -C "$REPO" -c user.name="hermes" -c user.email="hermes@local" commit -qm "init hermes repo" 2>/dev/null || true
+    fi
   fi
   mkdir -p "$REPO/configs"
 }

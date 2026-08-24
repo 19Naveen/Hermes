@@ -22,7 +22,25 @@ case "${1:-help}" in
   list)       do_list ;;
   remote)     do_remote "$@" ;;
   secret)     do_secret "$@" ;;
-  completion) do_completion ;;
+  completion)
+    # auto-install completions when run without piped output, else print
+    if [[ -t 1 ]] && [[ -z "${2:-}" ]]; then
+      mkdir -p ~/.zsh/completions
+      do_completion > ~/.zsh/completions/_hermes
+      if [[ -f ~/.zshrc ]] && ! grep -qs '.zsh/completions' ~/.zshrc; then
+        if grep -q 'compinit' ~/.zshrc; then
+          sed -i 's|^\(.*compinit.*\)$|fpath=(~/.zsh/completions $fpath)\n\1|' ~/.zshrc
+        else
+          echo 'fpath=(~/.zsh/completions $fpath)' >> ~/.zshrc
+        fi
+      fi
+      ok "zsh completions installed to ~/.zsh/completions/_hermes"
+      echo "  restart zsh or run: compinit"
+    else
+      do_completion
+    fi
+    ;;
   update)     do_update ;;
+  help|--help|-h) usage ;;
   *)          usage ;;
 esac
