@@ -68,6 +68,7 @@ _hermes() {
   local -a cmds
   cmds=('backup:pick installed configs to back up and push'
         'install:pick stored configs to install'
+        'sync:unified chooser (backup/install/browse)'
         'list:show what is backed up in the repo'
         'remote:set and verify the dotfiles repo url'
         'secret:encrypt a file into repo secrets/'
@@ -101,6 +102,8 @@ usage() {
 ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝
  — config backup & restore ($TOOL_REPO)
 
+  hermes                   unified chooser (backup/install/browse) ← default
+  hermes sync              unified chooser
   hermes backup            pick installed configs → commit & push
   hermes install           pick stored configs → install locally
   hermes list              show what's in the backup repo

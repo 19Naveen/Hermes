@@ -11,14 +11,15 @@ LIB="${HERMES_LIB:-$(dirname "$SELF")/../share/hermes/lib}"
 [[ -d $LIB ]] || LIB="$(dirname "$SELF")/lib"
 [[ -d $LIB ]] || { echo "hermes: lib not found at $LIB" >&2; exit 1; }
 
-for f in common discover backup install extra; do
+for f in common discover backup install extra sync; do
   # shellcheck source=/dev/null
   source "$LIB/$f.sh"
 done
 
-case "${1:-help}" in
+case "${1:-sync}" in
   backup)     do_backup ;;
   install)    do_install ;;
+  sync|"")    do_sync ;;
   list)       do_list ;;
   remote)     do_remote "$@" ;;
   secret)     do_secret "$@" ;;

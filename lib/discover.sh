@@ -4,7 +4,6 @@
 # folders whose children each become a pickable item
 SOURCES=(
   "$HOME/.config"
-  "$HOME/.agents/skills"
 )
 
 # exact paths OUTSIDE .config worth backing up: name|path
@@ -31,19 +30,10 @@ IGNORES=(
 
 discover() {
   (
-    local src dir label s spath
-    for dir in "${SOURCES[@]}"; do
-      [[ -d $dir ]] || continue
-      label=$(echo "${dir/#$HOME\//}" | tr '/' '-')
-      label=${label#.}
-      for src in "$dir"/*; do
-        [[ -e $src ]] || continue
-        if [[ $dir == "$HOME/.config" ]]; then
-          echo "$(basename "$src")|$src"
-        else
-          echo "${label}-$(basename "$src")|$src"
-        fi
-      done
+    local src s spath
+    for src in "$HOME/.config"/*; do
+      [[ -e $src ]] || continue
+      echo "$(basename "$src")|$src"
     done
     for s in "${SPECIALS[@]}"; do
       spath=$(eval echo "${s#*|}")
@@ -54,10 +44,6 @@ discover() {
 
 dest_for() {
   local s spath
-  case $1 in
-    claude-skills-*) echo "$HOME/.claude/skills/${1#claude-skills-}"; return ;;
-    agents-skills-*) echo "$HOME/.agents/skills/${1#agents-skills-}"; return ;;
-  esac
   for s in "${SPECIALS[@]}"; do
     [[ ${s%%|*} == "$1" ]] && { eval echo "${s#*|}"; return; }
   done
