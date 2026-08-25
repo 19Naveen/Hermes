@@ -385,15 +385,12 @@ if [[ -n ${DOTFILES_URL// } ]]; then
   fi
   if command -v gum >/dev/null 2>&1 && has_tty; then
     gum style --border rounded --border-foreground 2 --align center --width 62 --margin "1 0" \
-      "$(gum style --bold --foreground 2 '✔ Dotfiles ready: '"$DOTFILES_URL")" \
-      "$(gum style --faint 'Run: hermes backup  •  hermes install')" 2>&1 || ok "dotfiles repo verified & ready: $DOTFILES_URL"
+      "$(gum style --bold --foreground 2 '✔ Dotfiles ready')" \
+      "$(gum style --faint "$DOTFILES_URL")" \
+      "$(gum style --bold --foreground 99 'H E R M E S — ready')" \
+      "$(gum style --faint 'hermes backup  •  hermes install  •  hermes list')" 2>&1 || ok "dotfiles repo verified & ready: $DOTFILES_URL"
   else
     ok "dotfiles repo verified & ready: $DOTFILES_URL"
-  fi
-  if [[ $DOTFILES_URL == https://* ]]; then
-    echo "  tip: ssh alternative is git@github.com:${DOTFILES_URL#https://github.com/}"
-  elif [[ $DOTFILES_URL == git@* ]]; then
-    echo "  tip: https alternative is https://github.com/${DOTFILES_URL#git@github.com:}"
   fi
 else
   if command -v gum >/dev/null 2>&1 && has_tty; then
@@ -413,13 +410,12 @@ else
     echo "       HERMES_DOTFILES=git@github.com:YOU/dotfiles.git curl -fsSL $TOOL_REPO/raw/master/setup.sh | bash"
     echo "       HERMES_DOTFILES=https://TOKEN@github.com/YOU/dotfiles.git curl -fsSL $TOOL_REPO/raw/master/setup.sh | bash"
   fi
-fi
-
-# Interactive footer — Hermes styled
-if command -v gum >/dev/null 2>&1 && has_tty; then
-  gum style --border rounded --border-foreground 99 --align center --width 62 --margin "1 0" \
-    "$(gum style --bold --foreground 99 'H E R M E S — ready')" \
-    "$(gum style --faint 'hermes backup  •  hermes install  •  hermes list')" 2>&1 || true
-else
-  say "Done! Try: hermes backup   (or: hermes install)"
+  # Footer only when dotfiles was skipped — otherwise combined above
+  if command -v gum >/dev/null 2>&1 && has_tty; then
+    gum style --border rounded --border-foreground 99 --align center --width 62 --margin "1 0" \
+      "$(gum style --bold --foreground 99 'H E R M E S — ready')" \
+      "$(gum style --faint 'hermes backup  •  hermes install  •  hermes list')" 2>&1 || true
+  else
+    say "Done! Try: hermes backup   (or: hermes install)"
+  fi
 fi
