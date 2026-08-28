@@ -1,20 +1,5 @@
 #!/usr/bin/env bash
-# extra.sh — remote management, list, update, completions
-
-do_list() {
-  ensure_repo
-  local cfgs=()
-  mapfile -t cfgs < <(ls -1 "$REPO/configs" 2>/dev/null || true)
-  if (( ${#cfgs[@]} == 0 )) || [[ -z "${cfgs[0]:-}" ]]; then
-    gum style --foreground 3 "No configs backed up yet" 2>&1 || echo "No configs backed up yet"
-    echo "  Run: hermes backup"
-    echo "  Repo: $REPO/configs"
-    return 0
-  fi
-  printf '%s\n' "${cfgs[@]}"
-  echo ""
-  gum style --faint "${#cfgs[@]} config(s) in $REPO/configs" 2>&1 || true
-}
+# extra.sh — remote management, update, completions
 
 do_remote() {
   [[ -n ${2:-} ]] || die "usage: hermes remote <git-url>  (ssh: git@github.com:USER/REPO.git  or https: https://github.com/USER/REPO.git)"
@@ -68,8 +53,7 @@ _hermes() {
   local -a cmds
   cmds=('backup:pick installed configs to back up and push'
         'install:pick stored configs to install'
-        'sync:unified chooser (backup/install/browse)'
-        'list:show stored configs + install picker (alias of install)'
+        'sync:two-way reconcile (latest wins)'
         'remote:set and verify the dotfiles repo url'
         'secret:encrypt a file into repo secrets/'
         'completion:print shell completions'
@@ -107,7 +91,6 @@ usage() {
   hermes backup            pick installed configs → commit & push
   hermes install           pick stored configs → install locally
   hermes browse            read-only union view (local + repo, with status)
-  hermes list              show stored configs and pick to install (alias of install)
   hermes remote <url>      set + verify your private dotfiles repo
   hermes secret <file>     passphrase-encrypt a file into the repo
   hermes completion        print zsh completions

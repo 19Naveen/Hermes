@@ -12,6 +12,15 @@ _cloud_ct() { # last git commit time touching a repo config (epoch seconds)
   echo "${t:-0}"
 }
 
+_color_action() { # color an action word for the plan view
+  case "$1" in
+    PUSH*)  gum style --foreground 2 --bold "$1" ;;
+    PULL*)  gum style --foreground 6 --bold "$1" ;;
+    skip*)  gum style --faint "$1" ;;
+    *)      echo "$1" ;;
+  esac
+}
+
 # do_sync — pull cloud, then per item:
 #   local-only  → push
 #   remote-only → pull
@@ -35,7 +44,8 @@ do_sync() {
   mapfile -t union < <(printf '%s\n' "${lnames[@]}" "${rnames[@]}" | sort -u)
   (( ${#union[@]} )) || die "nothing to sync — no local configs and repo empty"
 
-  local name src dst lmt rct action rows=() plan=()
+  local name src dst lmt rct action plan=()
+  local cnt_push=0 cnt_pull=0 cnt_skip=0
   for name in "${union[@]}"; do
     src=""; for i in "${items[@]}"; do [[ ${i%%|*} == "$name" ]] && { src=${i#*|}; break; }; done
     dst=$(dest_for "$name")
@@ -56,19 +66,24 @@ do_sync() {
     else action="?"; lmt=0; rct=0
     fi
 
-    rows+=("$name · local $(date -d @$lmt +%H:%M 2>/dev/null || echo '-') · cloud $(date -d @$rct +%H:%M 2>/dev/null || echo '-') · $action")
+    case "$action" in PUSH*) cnt_push=$((cnt_push+1)) ;; PULL*) cnt_pull=$((cnt_pull+1)) ;; *) cnt_skip=$((cnt_skip+1)) ;; esac
+    local atime ctime
+    atime=$(date -d @$lmt +%H:%M 2>/dev/null || echo '-')
+    ctime=$(date -d @$rct +%H:%M 2>/dev/null || echo '-')
+    printf '  %-26s local %-6s cloud %-6s %s\n' "$name" "$atime" "$ctime" "$(_color_action "$action")"
     plan+=("$name|$action")
   done
 
   banner
-  echo " $(gum style --bold --foreground 99 'SYNC') $(gum style --faint "${#union[@]} items · plan below — latest mtime wins")"
+  echo " $(gum style --bold --foreground 99 'SYNC') $(gum style --faint "${#union[@]} items · latest mtime wins")"
   echo
-  printf '%s\n' "${rows[@]}" | gum style --faint 2>/dev/null || printf '%s\n' "${rows[@]}"
+  gum style --bold "  Plan: $(gum style --foreground 2 "$cnt_push ↑ push") · $(gum style --foreground 6 "$cnt_pull ↓ pull") · $(gum style --faint "$cnt_skip = skip")"
+  echo " $(gum style --faint "PUSH = upload to cloud   PULL = install from cloud   skip = identical")"
 
-  local acts; acts=$(printf '%s\n' "${plan[@]}" | grep -cE 'PUSH|PULL' || true)
+  local acts=$((cnt_push + cnt_pull))
   (( acts == 0 )) && { ok "nothing to do — everything in sync"; return 0; }
 
-  gum confirm "Apply plan? (PUSH = cloud gets it, PULL = you get cloud's)" || exit 0
+  gum confirm "Apply this plan?" || exit 0
 
   local copied=() name2 src2 dst2
   for p in "${plan[@]}"; do
