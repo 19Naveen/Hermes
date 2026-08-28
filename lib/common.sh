@@ -157,22 +157,29 @@ push_latest() {
 _hermes_drain() {
   local _c _tty="/dev/tty"
   [[ -c $_tty ]] || _tty="/dev/stdin"
-  # only when attached to a tty; non-blocking reads so we never hang
-  if [[ -t 0 || -t 1 || -c $_tty ]]; then
-    # first, check if anything is waiting without blocking
-    while IFS= read -r -t 0 -n 1 _c 2>/dev/null <"$_tty"; do
+  # fast probe: if nothing arrives in 80ms, there's no leak — return
+  # immediately so we don't add latency to every gum call.
+  if ! IFS= read -r -t 0.08 -n 1 _c 2>/dev/null <"$_tty"; then return 0; fi
+  # leak detected — consume the full DECRPM sequence \e[?2026;2$y etc.
+  if [[ $_c == $'\e' ]]; then
+    while IFS= read -r -t 0.05 -n 1 _c 2>/dev/null <"$_tty"; do
+      [[ $_c == "y" ]] && break
+    done || true
+  fi
+  # now keep draining for ~200ms — captures the second \e[?2027;... and any
+  # late burst that arrives after the first reply
+  local _tries=8
+  while (( _tries-- > 0 )); do
+    while IFS= read -r -t 0.02 -n 1 _c 2>/dev/null <"$_tty"; do :; done || true
+    if IFS= read -r -t 0.03 -n 1 _c 2>/dev/null <"$_tty"; then
       if [[ $_c == $'\e' ]]; then
-        # consume the full DECRPM sequence until trailing 'y'
-        while IFS= read -r -t 0.02 -n 1 _c 2>/dev/null <"$_tty"; do
+        while IFS= read -r -t 0.05 -n 1 _c 2>/dev/null <"$_tty"; do
           [[ $_c == "y" ]] && break
         done || true
       fi
-      # drain any spill-over bytes that arrived in the same burst
-      while IFS= read -r -t 0.01 -n 1 _c 2>/dev/null <"$_tty"; do :; done || true
-    done || true
-    # second tiny window for a reply that arrived just after the first burst
-    while IFS= read -r -t 0.05 -n 1 _c 2>/dev/null <"$_tty"; do :; done || true
-  fi
+      _tries=4  # reset window when we see new data
+    fi
+  done || true
 }
 
 gum() {
