@@ -148,7 +148,43 @@ push_latest() {
   fi
 }
 
+# --- hermes: contain gum's terminal probes ---
+# gum (charm) queries the terminal with DECRQM \e[?2026$p etc. to enable
+# Synchronized Output. The terminal replies \e[?2026;2$y etc. If gum exits
+# before the reply arrives, those bytes leak into the shell's input buffer
+# and show as ^[[?2026;2$y on the next prompt. We wrap the `gum` binary
+# to drain any pending reply immediately after each call, and also on EXIT.
+_hermes_drain() {
+  local _c _tty="/dev/tty"
+  [[ -c $_tty ]] || _tty="/dev/stdin"
+  # only when attached to a tty; non-blocking reads so we never hang
+  if [[ -t 0 || -t 1 || -c $_tty ]]; then
+    # first, check if anything is waiting without blocking
+    while IFS= read -r -t 0 -n 1 _c 2>/dev/null <"$_tty"; do
+      if [[ $_c == $'\e' ]]; then
+        # consume the full DECRPM sequence until trailing 'y'
+        while IFS= read -r -t 0.02 -n 1 _c 2>/dev/null <"$_tty"; do
+          [[ $_c == "y" ]] && break
+        done || true
+      fi
+      # drain any spill-over bytes that arrived in the same burst
+      while IFS= read -r -t 0.01 -n 1 _c 2>/dev/null <"$_tty"; do :; done || true
+    done || true
+    # second tiny window for a reply that arrived just after the first burst
+    while IFS= read -r -t 0.05 -n 1 _c 2>/dev/null <"$_tty"; do :; done || true
+  fi
+}
+
+gum() {
+  command gum "$@"
+  local _ret=$?
+  _hermes_drain || true
+  return $_ret
+}
+
+trap '_hermes_drain 2>/dev/null || true' EXIT
+
 # gum spin execs its argument as an external binary and can't see shell
 # functions or unexported vars — export both.
 export REPO
-export -f pull_latest push_latest check_auth normalize_url has_github_auth
+export -f pull_latest push_latest check_auth normalize_url has_github_auth _hermes_drain gum
