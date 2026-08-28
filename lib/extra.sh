@@ -102,10 +102,11 @@ usage() {
 ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝
  — config backup & restore ($TOOL_REPO)
 
-  hermes                   unified chooser (backup/install/browse) ← default
-  hermes sync              unified chooser
+  hermes                   show this help
+  hermes sync              two-way reconcile (latest wins) — push/pull per item
   hermes backup            pick installed configs → commit & push
   hermes install           pick stored configs → install locally
+  hermes browse            read-only union view (local + repo, with status)
   hermes list              show what's in the backup repo
   hermes remote <url>      set + verify your private dotfiles repo
   hermes secret <file>     passphrase-encrypt a file into the repo

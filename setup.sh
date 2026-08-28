@@ -271,13 +271,7 @@ normalize_url() {
   echo "$url"
 }
 
-# Interactive header for dotfiles step — Hermes styled
-if command -v gum >/dev/null 2>&1 && has_tty; then
-  gum style --border rounded --border-foreground 99 --align center --width 62 --margin "1 0" \
-    "$(gum style --bold --foreground 212 '◆ Dotfiles Repository')" \
-    "$(gum style --faint 'Where your configs will live — private GitHub repo')" \
-    "$(gum style --faint 'ssh: git@github.com:YOU/dotfiles.git  •  https: https://github.com/YOU/dotfiles.git')" 2>&1 || true
-fi
+
 
 # Reuse already-configured remote if present (handles "already configured github" — don't ask again)
 if [[ -z "${DOTFILES_URL// }" ]]; then
@@ -387,7 +381,6 @@ if [[ -n ${DOTFILES_URL// } ]]; then
     gum style --border rounded --border-foreground 2 --align center --width 62 --margin "1 0" \
       "$(gum style --bold --foreground 2 '✔ Dotfiles ready')" \
       "$(gum style --faint "$DOTFILES_URL")" \
-      "$(gum style --bold --foreground 99 'H E R M E S — ready')" \
       "$(gum style --faint 'hermes backup  •  hermes install  •  hermes list')" 2>&1 || ok "dotfiles repo verified & ready: $DOTFILES_URL"
   else
     ok "dotfiles repo verified & ready: $DOTFILES_URL"
@@ -413,7 +406,6 @@ else
   # Footer only when dotfiles was skipped — otherwise combined above
   if command -v gum >/dev/null 2>&1 && has_tty; then
     gum style --border rounded --border-foreground 99 --align center --width 62 --margin "1 0" \
-      "$(gum style --bold --foreground 99 'H E R M E S — ready')" \
       "$(gum style --faint 'hermes backup  •  hermes install  •  hermes list')" 2>&1 || true
   else
     say "Done! Try: hermes backup   (or: hermes install)"

@@ -16,10 +16,11 @@ for f in common discover backup install extra sync; do
   source "$LIB/$f.sh"
 done
 
-case "${1:-sync}" in
+case "${1:-}" in
   backup)     do_backup ;;
   install)    do_install ;;
-  sync|"")    do_sync ;;
+  sync)       do_sync ;;
+  browse)     do_browse ;;
   list)       do_list ;;
   remote)     do_remote "$@" ;;
   secret)     do_secret "$@" ;;
@@ -42,6 +43,6 @@ case "${1:-sync}" in
     fi
     ;;
   update)     do_update ;;
-  help|--help|-h) usage ;;
+  help|--help|-h|"") usage ;;
   *)          usage ;;
 esac
