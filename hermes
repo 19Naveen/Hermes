@@ -21,7 +21,7 @@ case "${1:-}" in
   install)    do_install ;;
   sync)       do_sync ;;
   browse)     do_browse ;;
-  list)       do_list ;;
+  list)       do_install ;;
   remote)     do_remote "$@" ;;
   secret)     do_secret "$@" ;;
   completion)

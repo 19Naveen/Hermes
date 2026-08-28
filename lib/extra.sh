@@ -69,7 +69,7 @@ _hermes() {
   cmds=('backup:pick installed configs to back up and push'
         'install:pick stored configs to install'
         'sync:unified chooser (backup/install/browse)'
-        'list:show what is backed up in the repo'
+        'list:show stored configs + install picker (alias of install)'
         'remote:set and verify the dotfiles repo url'
         'secret:encrypt a file into repo secrets/'
         'completion:print shell completions'
@@ -107,7 +107,7 @@ usage() {
   hermes backup            pick installed configs → commit & push
   hermes install           pick stored configs → install locally
   hermes browse            read-only union view (local + repo, with status)
-  hermes list              show what's in the backup repo
+  hermes list              show stored configs and pick to install (alias of install)
   hermes remote <url>      set + verify your private dotfiles repo
   hermes secret <file>     passphrase-encrypt a file into the repo
   hermes completion        print zsh completions
