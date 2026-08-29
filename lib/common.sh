@@ -157,29 +157,35 @@ push_latest() {
 _hermes_drain() {
   local _c _tty="/dev/tty"
   [[ -c $_tty ]] || _tty="/dev/stdin"
-  # fast probe: if nothing arrives in 80ms, there's no leak — return
-  # immediately so we don't add latency to every gum call.
-  if ! IFS= read -r -t 0.08 -n 1 _c 2>/dev/null <"$_tty"; then return 0; fi
-  # leak detected — consume the full DECRPM sequence \e[?2026;2$y etc.
-  if [[ $_c == $'\e' ]]; then
-    while IFS= read -r -t 0.05 -n 1 _c 2>/dev/null <"$_tty"; do
-      [[ $_c == "y" ]] && break
-    done || true
-  fi
-  # now keep draining for ~200ms — captures the second \e[?2027;... and any
-  # late burst that arrives after the first reply
-  local _tries=8
-  while (( _tries-- > 0 )); do
-    while IFS= read -r -t 0.02 -n 1 _c 2>/dev/null <"$_tty"; do :; done || true
-    if IFS= read -r -t 0.03 -n 1 _c 2>/dev/null <"$_tty"; then
+  # terminal replies to \e[?2026$p arrive ~30-120ms after gum exits.
+  # Wait a bit so the reply is already in the tty buffer, then drain
+  # everything non-blockingly (no extra wait when there's no leak beyond
+  # the initial sleep). 90ms is enough for the round-trip but short
+  # enough to keep the UI snappy (banner has ~7 gum calls).
+  sleep 0.09 2>/dev/null || true
+  local _did=0
+  while IFS= read -r -t 0 -n 1 _c 2>/dev/null <"$_tty"; do
+    _did=1
+    if [[ $_c == $'\e' ]]; then
+      while IFS= read -r -t 0 -n 1 _c 2>/dev/null <"$_tty"; do
+        [[ $_c == "y" ]] && break
+        # also handle stray bytes without y terminator
+        [[ $_c == "" ]] && break
+      done || true
+    fi
+  done || true
+  # if we saw a leak, give a tiny extra window for the second sequence
+  # \e[?2027;2$y which sometimes arrives ~20ms after the first
+  if (( _did )); then
+    sleep 0.04 2>/dev/null || true
+    while IFS= read -r -t 0 -n 1 _c 2>/dev/null <"$_tty"; do
       if [[ $_c == $'\e' ]]; then
-        while IFS= read -r -t 0.05 -n 1 _c 2>/dev/null <"$_tty"; do
+        while IFS= read -r -t 0 -n 1 _c 2>/dev/null <"$_tty"; do
           [[ $_c == "y" ]] && break
         done || true
       fi
-      _tries=4  # reset window when we see new data
-    fi
-  done || true
+    done || true
+  fi
 }
 
 gum() {
