@@ -58,6 +58,20 @@ echo 'changed' >> "$HOME/.zshrc"
 same_config zshrc && { echo "FAIL: modified zshrc still reads as in sync" >&2; exit 1; }
 echo "ok: store/install round trip keeps dirs as dirs and files as files"
 
+# --- push_latest actually commits ------------------------------------------
+# It used to run inside `gum spin -- bash -c`, where dotfiles_url was not an
+# exported function, so it died with "command not found" and every backup left
+# the files uncommitted. With no remote set it must still commit locally.
+before=$(git -C "$HERMES_REPO" rev-list --count HEAD)
+push_latest "test-config" >/dev/null 2>&1
+after=$(git -C "$HERMES_REPO" rev-list --count HEAD)
+(( after == before + 1 )) || { echo "FAIL: push_latest made no commit ($before -> $after)" >&2; exit 1; }
+git -C "$HERMES_REPO" log -1 --format=%s | grep -q 'test-config' \
+  || { echo "FAIL: commit message lost the config list" >&2; exit 1; }
+[[ -z $(git -C "$HERMES_REPO" status --porcelain) ]] \
+  || { echo "FAIL: files left uncommitted after push_latest" >&2; exit 1; }
+echo "ok: push_latest commits locally even with no remote configured"
+
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 p="$tmp/pipe"; mkfifo "$p"
 

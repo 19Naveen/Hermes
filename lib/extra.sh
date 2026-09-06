@@ -8,7 +8,8 @@ do_remote() {
   # prefer normalized for storage but keep original if user used ssh
   [[ $url == git@* || $url == ssh://* ]] && norm="$url"
   ensure_repo
-  if ! gum spin --title "Checking access to $url…" -- bash -c "check_auth '$url'"; then
+  info "checking access to $url…"
+  if ! check_auth "$url"; then
     if [[ $url == https://* ]]; then
       die "cannot access $url — for private https repos: use a token (https://TOKEN@github.com/USER/REPO.git) or 'gh auth login', or switch to ssh: git@github.com:USER/REPO.git"
     elif [[ $url == git@* || $url == ssh://* ]]; then

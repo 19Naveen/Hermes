@@ -19,7 +19,7 @@ EOF
 
 do_backup() {
   ensure_repo
-  gum spin --title "Syncing with remote…" -- bash -c pull_latest
+  info "syncing with remote…"; pull_latest
   sync_meta
 
   local excludes=()
@@ -66,6 +66,6 @@ do_backup() {
   (( ${#copied[@]} )) || die "nothing was copied"
   # --show-output so push/commit failures are visible instead of swallowed by
   # the spinner; args passed positionally so a quote in a name can't break out
-  gum spin --show-output --title "Committing…" -- bash -c 'push_latest "$1"' _ "${copied[*]}"
+  info "committing…"; push_latest "${copied[*]}"
   summary "Backed up" "${copied[*]}"
 }

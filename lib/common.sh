@@ -17,6 +17,7 @@ _have_gum() { type -P gum >/dev/null 2>&1; }
 die()  { printf '\033[1;31m✖ %s\033[0m\n' "$*" >&2; exit 1; }
 ok()   { printf '\033[1;32m✔\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m⚠ %s\033[0m\n' "$*"; }
+info() { printf '\033[2m… %s\033[0m\n' "$*"; }
 
 _ascii() {
   cat <<'EOF'
@@ -149,11 +150,8 @@ pull_latest() {
 push_latest() {
   local msg=$1 url
   url=$(dotfiles_url)
-  if [[ -z $url ]]; then
-    warn "No dotfiles repo set — committed locally only."
-    echo "  Run: hermes remote git@github.com:YOU/dotfiles.git"
-    return 0
-  fi
+  # commit first, unconditionally: the no-remote branch used to claim
+  # "committed locally only" and then return before committing anything
   git -C "$REPO" add -A
   if git -C "$REPO" diff --cached --quiet; then
     warn "No changes since last backup."
@@ -164,6 +162,11 @@ push_latest() {
                  -c user.email="${GIT_AUTHOR_EMAIL:-hermes@local}" \
                  commit -qm "backup $(date +%F-%H:%M): $msg"
   ok "committed: $msg"
+  if [[ -z $url ]]; then
+    warn "No dotfiles repo set — committed locally only."
+    echo "  Run: hermes remote git@github.com:YOU/dotfiles.git"
+    return 0
+  fi
   if git -C "$REPO" push -q origin HEAD 2>/dev/null; then
     ok "pushed to $url"
   else
@@ -218,8 +221,10 @@ gum() {
 # always hand the terminal back, even on ctrl-c or a die()
 trap '_hermes_drain 2>/dev/null; [[ -n $_HERMES_TTY_SAVED ]] && stty "$_HERMES_TTY_SAVED" 2>/dev/null </dev/tty; true' EXIT
 
-# gum spin execs its argument as an external binary and can't see shell
-# functions or unexported vars — export both.
-export REPO _HERMES_TTY_SAVED
-export -f pull_latest push_latest check_auth normalize_url _hermes_drain gum \
-          _have_gum die ok warn
+# pull_latest/push_latest/check_auth used to run inside `gum spin -- bash -c`,
+# a fresh shell that only sees exported functions. dotfiles_url was never in
+# that list, so both silently no-op'd: every backup copied files into the repo
+# and never committed them. They run in-process now, which removes the need for
+# `export -f` entirely and stops the trap from coming back the next time a
+# helper is added. REPO stays exported for the user's bootstrap.sh.
+export REPO

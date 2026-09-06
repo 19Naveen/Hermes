@@ -64,7 +64,7 @@ _store_config() { # <name> — copy the live config into the repo
 #   diverged    → newer mtime wins (local mtime vs cloud commit time)
 do_sync() {
   ensure_repo
-  gum spin --title "Syncing with remote…" -- bash -c pull_latest 2>/dev/null || true
+  info "syncing with remote…"; pull_latest
 
   local excludes=()
   mapfile -t excludes < <(build_excludes)
@@ -130,7 +130,7 @@ do_sync() {
   done
 
   if (( ${#copied[@]} )); then
-    gum spin --show-output --title "Committing…" -- bash -c 'push_latest "$1"' _ "${copied[*]}"
+    info "committing…"; push_latest "${copied[*]}"
   fi
   install_secrets
   run_bootstrap

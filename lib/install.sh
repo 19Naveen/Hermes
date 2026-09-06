@@ -49,7 +49,7 @@ place_config() {
 
 do_install() {
   [[ -d $REPO ]] || die "no repo at $REPO — run setup first: curl -fsSL $TOOL_REPO/raw/master/setup.sh | bash"
-  gum spin --title "Pulling latest…" -- bash -c pull_latest
+  info "pulling latest…"; pull_latest
 
   local available=() chosen
   mapfile -t available < <(ls -1 "$REPO/configs" 2>/dev/null)
