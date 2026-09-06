@@ -2,7 +2,10 @@
 # common.sh — core vars, UI helpers, git plumbing
 
 REPO="${HERMES_REPO:-$HOME/.hermes-repo}"
+# both are read from the other lib files and from `hermes` itself
+# shellcheck disable=SC2034
 TOOL_REPO="https://github.com/19Naveen/Hermes"
+# shellcheck disable=SC2034
 HERMES_VERSION="0.2.0"
 
 die()  { gum style --foreground 1 "✖ $*"; exit 1; }
@@ -116,7 +119,7 @@ host=github.com
 
 # normalize_url <url> — return canonical url
 normalize_url() {
-  local url=$(echo "$1" | xargs); url=${url%/}
+  local url; url=$(echo "$1" | xargs); url=${url%/}
   if [[ $url =~ ^github\.com[:/] ]]; then
     local path=${url#github.com:}; path=${path#github.com/}
     url="https://github.com/$path"
@@ -176,6 +179,7 @@ _hermes_drain() {
   local tty=${1:-/dev/tty} junk t=0.15
   [[ -r $tty ]] || return 0
   # first window covers the reply round-trip, then drain until quiet
+  # shellcheck disable=SC2034  # `junk` is the discard sink, never read back
   while IFS= read -rsn 256 -t "$t" junk <"$tty" 2>/dev/null; do t=0.03; done
   return 0
 }

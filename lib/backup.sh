@@ -23,6 +23,7 @@ do_backup() {
   sync_meta
 
   local excludes=()
+  # shellcheck disable=SC2034  # read by _store_config through dynamic scope
   mapfile -t excludes < <(build_excludes)
 
   local items=() chosen

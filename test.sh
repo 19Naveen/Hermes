@@ -27,8 +27,9 @@ echo "ok: _row_name strips both ✓ and blank markers"
 # A one-file DIRECTORY must come back as a directory. The old heuristic keyed on
 # "the repo dir holds exactly one file" and replaced ~/.config/hypr with a FILE.
 ensure_repo
-excludes=(); mapfile -t excludes < <(build_excludes)
-items=(); while IFS= read -r l; do items+=("$l"); done < <(discover)
+excludes=()
+# shellcheck disable=SC2034  # read by _store_config through dynamic scope
+mapfile -t excludes < <(build_excludes)
 
 mkdir -p "$HOME/.config/hypr"
 echo 'monitor=eDP-1' > "$HOME/.config/hypr/hyprland.conf"

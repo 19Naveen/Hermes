@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
 # discover.sh — what gets tracked, and the alternates engine
 
-# folders whose children each become a pickable item
-SOURCES=(
-  "$HOME/.config"
-)
+# every child of ~/.config becomes a pickable item (see discover below)
 
 # exact paths OUTSIDE .config worth backing up: name|path
 # ($HOME written literally keeps them portable across machines)

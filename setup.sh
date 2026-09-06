@@ -146,7 +146,7 @@ EOS
 }
 
 ensure_deps() {
-  local missing=() pkg
+  local missing=()
   for dep in git rsync gpg gum; do command -v "$dep" >/dev/null || missing+=("$dep"); done
   ((${#missing[@]}==0)) && { ok "dependencies present"; return 0; }
 
@@ -174,7 +174,9 @@ ensure_deps() {
       say "Trying system install with sudo (cached) for: ${pkgs[*]}…"
     elif [[ -e /dev/tty ]]; then
       say "Need sudo to install: ${pkgs[*]}"
-      # cache credentials via /dev/tty so curl|bash still prompts correctly
+      # cache credentials via /dev/tty so curl|bash still prompts correctly.
+      # shellcheck disable=SC2024  # /dev/tty is the user's own terminal, not a
+      # root-owned file — the redirect is about reaching the tty, not privilege
       if sudo -v < /dev/tty > /dev/tty 2>&1; then
         can_sudo=1
       else
@@ -230,7 +232,8 @@ ensure_deps
 # --- install binary + lib ---------------------------------------------------
 mkdir -p "$BIN_DIR" "$SHARE_DIR"
 install -m 755 "$SRC/hermes" "$BIN_DIR/hermes"
-rm -rf "$SHARE_DIR/lib" && cp -r "$SRC/lib" "$SHARE_DIR/lib"
+# ${VAR:?} so an empty SHARE_DIR can never make this "rm -rf /lib"
+rm -rf "${SHARE_DIR:?}/lib" && cp -r "$SRC/lib" "$SHARE_DIR/lib"
 export PATH="$BIN_DIR:$PATH"
 ok "installed $BIN_DIR/hermes"
 
@@ -263,7 +266,7 @@ DOTFILES_URL="${HERMES_DOTFILES:-}"
 has_tty() { [[ -t 0 || -t 1 ]] || (exec 3<> /dev/tty) 2>/dev/null; }
 
 normalize_url() {
-  local url=$(echo "$1" | xargs); url=${url%/}
+  local url; url=$(echo "$1" | xargs); url=${url%/}
   if [[ $url =~ ^github\.com[:/] ]]; then
     local path=${url#github.com:}; path=${path#github.com/}
     url="https://github.com/$path"
@@ -335,7 +338,9 @@ if [[ -n ${DOTFILES_URL// } ]]; then
   # normalize shorthand (USER/REPO, github.com/USER/REPO) to https
   DOTFILES_URL=$(normalize_url "$DOTFILES_URL")
   git -C "$REPO" config hermes.remote "$DOTFILES_URL"
-  if git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1 && [[ $(ls -A "$REPO" | grep -vc '^\.') -gt 2 ]]; then
+  # count visible entries with a glob rather than parsing ls
+  visible=$(shopt -s nullglob; set -- "$REPO"/*; echo $#)
+  if git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1 && (( visible > 2 )); then
     # existing repo with content — pull instead of clobbering
     git -C "$REPO" remote remove origin 2>/dev/null || true
     git -C "$REPO" remote add origin "$DOTFILES_URL"
