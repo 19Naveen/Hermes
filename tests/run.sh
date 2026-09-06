@@ -58,6 +58,33 @@ echo 'changed' >> "$HOME/.zshrc"
 same_config zshrc && { echo "FAIL: modified zshrc still reads as in sync" >&2; exit 1; }
 echo "ok: store/install round trip keeps dirs as dirs and files as files"
 
+# --- dangling symlinks and excluded junk are not differences ----------------
+# diff -rq follows symlinks and exits 2 when the target is missing, which the
+# old same_config read as DIFFERS. ~/.config/hypr is 138 links into a package
+# that may not be installed, so it could never read as in sync.
+mkdir -p "$HOME/.config/withlinks"
+echo 'real' > "$HOME/.config/withlinks/real.conf"
+ln -s /definitely/not/here/target.glsl "$HOME/.config/withlinks/dangling.glsl"
+items=(); while IFS= read -r l; do items+=("$l"); done < <(discover)
+_store_config withlinks "$HOME/.config/withlinks"
+
+[[ -L $HERMES_REPO/configs/withlinks/dangling.glsl ]] \
+  || { echo "FAIL: symlink not stored as a symlink" >&2; exit 1; }
+same_config withlinks \
+  || { echo "FAIL: dangling symlink reported as a difference" >&2; exit 1; }
+
+# junk the backup excludes must not count as a difference either
+mkdir -p "$HOME/.config/withlinks/node_modules/pkg"
+echo 'junk' > "$HOME/.config/withlinks/node_modules/pkg/index.js"
+same_config withlinks \
+  || { echo "FAIL: excluded node_modules reported as a difference" >&2; exit 1; }
+
+# a real edit still must register
+echo 'changed' >> "$HOME/.config/withlinks/real.conf"
+same_config withlinks \
+  && { echo "FAIL: real content change reported as in sync" >&2; exit 1; }
+echo "ok: same_config ignores dangling symlinks and excluded junk, catches real edits"
+
 # --- push_latest actually commits ------------------------------------------
 # It used to run inside `gum spin -- bash -c`, where dotfiles_url was not an
 # exported function, so it died with "command not found" and every backup left

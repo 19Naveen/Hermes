@@ -19,15 +19,24 @@ _stored_file() {                        # <name> → path of the single stored f
 # diff -rq between a stored DIRECTORY and a file destination always reports a
 # difference, which made every file-type config read as DIFFERS forever.
 same_config() {
-  local name=$1 dst src f
+  local name=$1 dst src f ex=() out
   dst=$(dest_for "$name"); src="$REPO/configs/$name"
   [[ -e $dst ]] || return 1
   f=$(_stored_file "$name")
   if [[ -f $dst ]]; then
     [[ -n $f ]] && cmp -s "$f" "$dst"
-  else
-    diff -rq "$src" "$dst" >/dev/null 2>&1
+    return
   fi
+  # rsync -n, not diff -rq: diff follows symlinks and exits 2 on a dangling one
+  # (~/.config/hypr is 138 links into /usr/share/aether, which is not installed),
+  # and it knows nothing about the excludes the backup applied — so such a config
+  # read DIFFERS forever. This is the backup command with --dry-run, so "nothing
+  # to do" is the honest definition of in sync. Lines starting with "." are
+  # attribute-only (mtime, perms) and do not count as a content difference.
+  mapfile -t ex < <(build_excludes)
+  out=$(rsync -ain --delete --delete-excluded "${ex[@]}" "$dst/" "$src/" 2>/dev/null \
+        | grep -v '^\.') || true
+  [[ -z $out ]]
 }
 
 # place_config <name> — restore configs/<name> to its destination
