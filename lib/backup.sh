@@ -64,8 +64,9 @@ do_backup() {
   (( ${#missed[@]} )) && warn "could not resolve: ${missed[*]}"
 
   (( ${#copied[@]} )) || die "nothing was copied"
-  # --show-output so push/commit failures are visible instead of swallowed by
-  # the spinner; args passed positionally so a quote in a name can't break out
   info "committing…"; push_latest "${copied[*]}"
-  summary "Backed up" "${copied[*]}"
+
+  local lines=()
+  mapfile -t lines < <(_stored_report "${copied[@]}")
+  summary "Backed up $(plural ${#copied[@]} config)" "${lines[@]}"
 }

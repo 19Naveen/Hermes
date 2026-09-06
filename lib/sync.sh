@@ -117,7 +117,7 @@ do_sync() {
 
   gum confirm "Apply this plan?" || exit 0
 
-  local copied=() p name2
+  local copied=() pulled=() p name2
   for p in "${plan[@]}"; do
     name2=${p%%|*}; action=${p#*|}
     case "$action" in
@@ -125,7 +125,7 @@ do_sync() {
              [[ -n $src ]] || continue
              _store_config "$name2" "$src"
              copied+=("$name2") ;;
-      PULL*) place_config "$name2" ;;
+      PULL*) place_config "$name2" && pulled+=("$name2") ;;
     esac
   done
 
@@ -134,7 +134,12 @@ do_sync() {
   fi
   install_secrets
   run_bootstrap
-  summary "Synced" "Restart shell / apps to pick up"
+
+  local lines=("")
+  (( ${#copied[@]} )) && lines+=("↑ pushed  ${copied[*]}")
+  (( ${#pulled[@]} )) && lines+=("↓ pulled  ${pulled[*]}")
+  lines+=("" "Restart shell / apps to pick up.")
+  summary "Synced $(plural $(( ${#copied[@]} + ${#pulled[@]} )) config)" "${lines[@]}"
 }
 
 do_browse() {

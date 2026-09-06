@@ -58,6 +58,20 @@ echo 'changed' >> "$HOME/.zshrc"
 same_config zshrc && { echo "FAIL: modified zshrc still reads as in sync" >&2; exit 1; }
 echo "ok: store/install round trip keeps dirs as dirs and files as files"
 
+# --- summary helpers --------------------------------------------------------
+[[ $(plural 1 config) == "1 config"  ]] || { echo "FAIL: plural 1"  >&2; exit 1; }
+[[ $(plural 2 config) == "2 configs" ]] || { echo "FAIL: plural 2"  >&2; exit 1; }
+[[ $(plural 0 config) == "0 configs" ]] || { echo "FAIL: plural 0"  >&2; exit 1; }
+for u in "git@github.com:19Naveen/dotfiles.git" \
+         "https://github.com/19Naveen/dotfiles.git" \
+         "https://TOKEN@github.com/19Naveen/dotfiles"; do
+  [[ $(_repo_slug "$u") == "19Naveen/dotfiles" ]] \
+    || { echo "FAIL: _repo_slug ${u@Q} -> $(_repo_slug "$u")" >&2; exit 1; }
+done
+[[ $(_repo_slug "ssh://git@gitlab.com/team/cfg.git") == "team/cfg" ]] \
+  || { echo "FAIL: _repo_slug non-github" >&2; exit 1; }
+echo "ok: summary helpers (plural, repo slug across url forms)"
+
 # --- dangling symlinks and excluded junk are not differences ----------------
 # diff -rq follows symlinks and exits 2 when the target is missing, which the
 # old same_config read as DIFFERS. ~/.config/hypr is 138 links into a package

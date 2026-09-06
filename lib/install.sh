@@ -91,13 +91,19 @@ do_install() {
   gum style --foreground 6 "$(while IFS= read -r row; do echo "  ${row%% ·*}"; done <<<"$chosen")"
   gum confirm "Install these? (existing files will be overwritten)" || exit 0
 
+  local done_=() n
   while IFS= read -r row; do
-    place_config "$(_row_name "$row")"
+    n=$(_row_name "$row")
+    place_config "$n" && done_+=("$n")
   done <<<"$chosen"
 
   install_secrets
   run_bootstrap
-  summary "Installed" "Restart your shell / apps to pick everything up."
+
+  local lines=("")
+  for n in "${done_[@]}"; do lines+=("$(printf '%-22s → %s' "$n" "$(dest_for "$n")")"); done
+  lines+=("" "Restart your shell / apps to pick everything up.")
+  summary "Installed $(plural ${#done_[@]} config)" "${lines[@]}"
 }
 
 install_secrets() {

@@ -42,11 +42,41 @@ banner() {                     # the entrypoint already sets the terminal title
     "$(gum style --faint 'config backup & restore')"
 }
 
+# summary <title> [line...] — each extra arg is its own line in the box
 summary() {
   local title=$1; shift
-  _have_gum || { printf '\n%s\n  %s\n' "$title" "$*"; return 0; }
+  _have_gum || { printf '\n%s\n' "$title"; printf '  %s\n' "$@"; return 0; }
   gum style --border rounded --border-foreground 2 --padding "0 2" --margin "1 0" \
-    "$(gum style --bold "$title")" "$*"
+    "$(gum style --bold "$title")" "$@"
+}
+
+# plural <n> <word> — "1 config" / "2 configs"
+plural() { printf '%s %s%s' "$1" "$2" "$( (( $1 == 1 )) || echo s )"; }
+
+# _repo_slug <url> — any git url down to owner/repo
+_repo_slug() {
+  local u=${1%.git}
+  u=${u#*://}; u=${u#*@}; u=${u/:/\/}        # host/owner/repo
+  printf '%s/%s' "$(basename "$(dirname "$u")")" "$(basename "$u")"
+}
+
+# _stored_report <name>... — body lines for the closing summary box: what was
+# stored and how big, then where it landed. Saves repeating the names the
+# picker and the commit line already printed.
+_stored_report() {
+  local n url sha
+  echo
+  for n in "$@"; do
+    printf '%-22s %8s\n' "$n" "$(human_size "$REPO/configs/$n")"
+  done
+  echo
+  url=$(dotfiles_url)
+  sha=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null)
+  if [[ -n $url ]]; then
+    printf '%s  @%s\n' "$(_repo_slug "$url")" "${sha:-?}"
+  else
+    printf 'local only  @%s  — no remote set\n' "${sha:-?}"
+  fi
 }
 
 human_size() {
