@@ -111,7 +111,16 @@ git -C "$HERMES_REPO" log -1 --format=%s | grep -q 'test-config' \
   || { echo "FAIL: commit message lost the config list" >&2; exit 1; }
 [[ -z $(git -C "$HERMES_REPO" status --porcelain) ]] \
   || { echo "FAIL: files left uncommitted after push_latest" >&2; exit 1; }
-echo "ok: push_latest commits locally even with no remote configured"
+(( HERMES_COMMITTED == 1 )) || { echo "FAIL: HERMES_COMMITTED not set after a commit" >&2; exit 1; }
+
+# second run has nothing to do — callers rely on this to avoid reporting a
+# backup that never happened
+push_latest "test-config" >/dev/null 2>&1
+(( $(git -C "$HERMES_REPO" rev-list --count HEAD) == after )) \
+  || { echo "FAIL: no-op push_latest still made a commit" >&2; exit 1; }
+(( HERMES_COMMITTED == 0 )) \
+  || { echo "FAIL: HERMES_COMMITTED still set when nothing was committed" >&2; exit 1; }
+echo "ok: push_latest commits locally, and reports when there was nothing to do"
 
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 p="$tmp/pipe"; mkfifo "$p"

@@ -135,11 +135,17 @@ do_sync() {
   install_secrets
   run_bootstrap
 
+  # a PUSH that turned out to be a no-op must not be counted as work done
+  (( HERMES_COMMITTED )) || copied=()
   local lines=("")
   (( ${#copied[@]} )) && lines+=("↑ pushed  ${copied[*]}")
   (( ${#pulled[@]} )) && lines+=("↓ pulled  ${pulled[*]}")
-  lines+=("" "Restart shell / apps to pick up.")
-  summary "Synced $(plural $(( ${#copied[@]} + ${#pulled[@]} )) config)" "${lines[@]}"
+  if (( ${#copied[@]} + ${#pulled[@]} == 0 )); then
+    summary "Already up to date" "" "nothing to push or pull"
+  else
+    lines+=("" "Restart shell / apps to pick up.")
+    summary "Synced $(plural $(( ${#copied[@]} + ${#pulled[@]} )) config)" "${lines[@]}"
+  fi
 }
 
 do_browse() {

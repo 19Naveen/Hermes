@@ -51,7 +51,7 @@ do_backup() {
   done <<<"$chosen"
 
   echo
-  gum style --foreground 6 "Backing up ${#names[@]} config(s):" "  ${names[*]}"
+  gum style --foreground 6 "Backing up $(plural ${#names[@]} config):" "  ${names[*]}"
   gum confirm "Continue?" || exit 0
 
   local copied=() missed=() src
@@ -68,5 +68,10 @@ do_backup() {
 
   local lines=()
   mapfile -t lines < <(_stored_report "${copied[@]}")
-  summary "Backed up $(plural ${#copied[@]} config)" "${lines[@]}"
+  if (( HERMES_COMMITTED )); then
+    summary "Backed up $(plural ${#copied[@]} config)" "${lines[@]}"
+  else
+    # nothing was committed — do not claim a backup that did not happen
+    summary "Already up to date" "${lines[@]}"
+  fi
 }

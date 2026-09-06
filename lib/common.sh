@@ -177,9 +177,14 @@ pull_latest() {
   git -C "$REPO" pull -q origin HEAD 2>/dev/null || true
 }
 
+# Set by push_latest so callers can tell "committed" from "nothing to commit"
+# and not report a backup that never happened.
+HERMES_COMMITTED=0
+
 push_latest() {
   local msg=$1 url
   url=$(dotfiles_url)
+  HERMES_COMMITTED=0
   # commit first, unconditionally: the no-remote branch used to claim
   # "committed locally only" and then return before committing anything
   git -C "$REPO" add -A
@@ -187,6 +192,8 @@ push_latest() {
     warn "No changes since last backup."
     return 0
   fi
+  # shellcheck disable=SC2034  # read by do_backup and do_sync
+  HERMES_COMMITTED=1
   # a machine with no global git identity would otherwise fail the commit
   git -C "$REPO" -c user.name="${GIT_AUTHOR_NAME:-hermes}" \
                  -c user.email="${GIT_AUTHOR_EMAIL:-hermes@local}" \
