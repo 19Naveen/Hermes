@@ -28,10 +28,14 @@ rm -f  "$BIN"      && ok "removed $BIN"
 rm -rf "$SHARE_DIR" && ok "removed $SHARE_DIR"
 rm -f  "$ZSH_COMP" && ok "removed $ZSH_COMP"
 
-# strip the two lines setup.sh may have added to shell rc files
+# strip only the exact two lines setup.sh adds — the old broad patterns deleted
+# any line mentioning .zsh/completions or .local/bin, including the user's own
 for rc in ~/.zshrc ~/.bashrc; do
-  if [[ -f $rc ]]; then
-    sed -i '/\.zsh\/completions/d; /\.local\/bin:\$PATH/d' "$rc"
+  [[ -f $rc ]] || continue
+  if grep -qE '^fpath=\(~/\.zsh/completions \$fpath\)$|^export PATH="'"$HOME"'/\.local/bin:\$PATH"$' "$rc"; then
+    sed -i.hermes-bak -e '/^fpath=(~\/\.zsh\/completions \$fpath)$/d' \
+                      -e '\|^export PATH="'"$HOME"'/\.local/bin:\$PATH"$|d' "$rc" \
+      && rm -f "$rc.hermes-bak"
     ok "cleaned $rc"
   fi
 done

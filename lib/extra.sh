@@ -27,9 +27,10 @@ do_remote() {
 }
 
 do_update() {
-  local tmp=/tmp/opencode/hermes-update
-  mkdir -p "$tmp"
-  gum spin --title "Downloading latest hermes…" -- bash -c "git clone -q --depth 1 '$TOOL_REPO' '$tmp/src'"
+  local tmp; tmp=$(mktemp -d)
+  trap 'rm -rf "$tmp"' RETURN
+  gum spin --title "Downloading latest hermes…" -- \
+    git clone -q --depth 1 "$TOOL_REPO" "$tmp/src"
   [[ -f $tmp/src/hermes ]] || die "update failed — check your internet"
   local self; self=$(readlink -f "$0")
   if [[ -w $(dirname "$self") ]]; then
@@ -43,7 +44,6 @@ do_update() {
       sudo cp -r "$tmp/src/lib" "$(dirname "$self")/../share/hermes/" &&
       ok "updated hermes + lib (sudo)"
   fi
-  rm -rf "$tmp"
 }
 
 do_completion() {
@@ -54,10 +54,12 @@ _hermes() {
   cmds=('backup:pick installed configs to back up and push'
         'install:pick stored configs to install'
         'sync:two-way reconcile (latest wins)'
+        'browse:read-only union view of local + repo'
         'remote:set and verify the dotfiles repo url'
         'secret:encrypt a file into repo secrets/'
         'completion:print shell completions'
-        'update:update hermes from the public repo')
+        'update:update hermes from the public repo'
+        'version:print the hermes version')
   if (( CURRENT == 2 )); then
     _describe 'command' cmds
   elif [[ $words[2] == remote ]]; then
@@ -84,7 +86,7 @@ usage() {
 ██╔══██║██╔══╝  ██╔══██╗██║╚██╔╝██║██╔══╝  ╚════██║
 ██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗███████║
 ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝
- — config backup & restore ($TOOL_REPO)
+ — config backup & restore v$HERMES_VERSION ($TOOL_REPO)
 
   hermes                   show this help
   hermes sync              two-way reconcile (latest wins) — push/pull per item
@@ -95,5 +97,6 @@ usage() {
   hermes secret <file>     passphrase-encrypt a file into the repo
   hermes completion        print zsh completions
   hermes update            update hermes from the public repo
+  hermes version           print the version
 EOF
 }

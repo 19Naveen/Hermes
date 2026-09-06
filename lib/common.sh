@@ -2,7 +2,11 @@
 # common.sh — core vars, UI helpers, git plumbing
 
 REPO="${HERMES_REPO:-$HOME/.hermes-repo}"
+# both are read from the other lib files and from `hermes` itself
+# shellcheck disable=SC2034
 TOOL_REPO="https://github.com/19Naveen/Hermes"
+# shellcheck disable=SC2034
+HERMES_VERSION="0.2.0"
 
 die()  { gum style --foreground 1 "✖ $*"; exit 1; }
 ok()   { gum style --foreground 2 "✔ $*"; }
@@ -32,6 +36,17 @@ human_size() {
   elif (( kb >= 1024 ));    then awk -v n="$kb" 'BEGIN{printf "%.1fMB", n/1024}'
   else                           echo "${kb}KB"
   fi
+}
+
+# _row_name <picker row> — config name out of "[✓ |  ]name · … (size)".
+# Both markers must go: leaving the untracked "  " in place makes the name
+# match no discovered item, and the selection is silently dropped.
+_row_name() {
+  local r=${1%% ·*}
+  r=${r#✓}
+  r="${r#"${r%%[![:space:]]*}"}"
+  r="${r%"${r##*[![:space:]]}"}"
+  printf '%s' "$r"
 }
 
 ensure_repo() {
@@ -104,7 +119,7 @@ host=github.com
 
 # normalize_url <url> — return canonical url
 normalize_url() {
-  local url=$(echo "$1" | xargs); url=${url%/}
+  local url; url=$(echo "$1" | xargs); url=${url%/}
   if [[ $url =~ ^github\.com[:/] ]]; then
     local path=${url#github.com:}; path=${path#github.com/}
     url="https://github.com/$path"
@@ -139,7 +154,10 @@ push_latest() {
     warn "No changes since last backup."
     return 0
   fi
-  git -C "$REPO" commit -qm "backup $(date +%F-%H:%M): $msg"
+  # a machine with no global git identity would otherwise fail the commit
+  git -C "$REPO" -c user.name="${GIT_AUTHOR_NAME:-hermes}" \
+                 -c user.email="${GIT_AUTHOR_EMAIL:-hermes@local}" \
+                 commit -qm "backup $(date +%F-%H:%M): $msg"
   ok "committed: $msg"
   if git -C "$REPO" push -q origin HEAD 2>/dev/null; then
     ok "pushed to $url"
@@ -154,50 +172,45 @@ push_latest() {
 # before the reply arrives, those bytes leak into the shell's input buffer
 # and show as ^[[?2026;2$y on the next prompt. We wrap the `gum` binary
 # to drain any pending reply immediately after each call, and also on EXIT.
+#
+# NOTE: `read -t 0` only *tests* whether input is pending — it never consumes
+# a byte. Draining needs `-n <count>` with a real timeout.
 _hermes_drain() {
-  local _c _tty="/dev/tty"
-  [[ -c $_tty ]] || _tty="/dev/stdin"
-  # terminal replies to \e[?2026$p arrive ~30-120ms after gum exits.
-  # Wait a bit so the reply is already in the tty buffer, then drain
-  # everything non-blockingly (no extra wait when there's no leak beyond
-  # the initial sleep). 90ms is enough for the round-trip but short
-  # enough to keep the UI snappy (banner has ~7 gum calls).
-  sleep 0.09 2>/dev/null || true
-  local _did=0
-  while IFS= read -r -t 0 -n 1 _c 2>/dev/null <"$_tty"; do
-    _did=1
-    if [[ $_c == $'\e' ]]; then
-      while IFS= read -r -t 0 -n 1 _c 2>/dev/null <"$_tty"; do
-        [[ $_c == "y" ]] && break
-        # also handle stray bytes without y terminator
-        [[ $_c == "" ]] && break
-      done || true
-    fi
-  done || true
-  # if we saw a leak, give a tiny extra window for the second sequence
-  # \e[?2027;2$y which sometimes arrives ~20ms after the first
-  if (( _did )); then
-    sleep 0.04 2>/dev/null || true
-    while IFS= read -r -t 0 -n 1 _c 2>/dev/null <"$_tty"; do
-      if [[ $_c == $'\e' ]]; then
-        while IFS= read -r -t 0 -n 1 _c 2>/dev/null <"$_tty"; do
-          [[ $_c == "y" ]] && break
-        done || true
-      fi
-    done || true
-  fi
+  local tty=${1:-/dev/tty} junk t=0.15
+  [[ -r $tty ]] || return 0
+  # first window covers the reply round-trip, then drain until quiet
+  # shellcheck disable=SC2034  # `junk` is the discard sink, never read back
+  while IFS= read -rsn 256 -t "$t" junk <"$tty" 2>/dev/null; do t=0.03; done
+  return 0
 }
 
+# Draining alone is not enough: the reply arrives after gum has restored the
+# terminal, and the tty echoes incoming bytes to the screen as they land — that
+# is the ^[[?2026;2$y printed mid-output. So turn echo OFF before gum starts;
+# gum saves that state and restores echo-off on exit, the reply arrives
+# silently, we drain it, then put the terminal back.
+#
+# Only the bubbletea-backed subcommands probe the terminal; `gum style` and
+# friends don't, and wrapping each would add 150ms per banner line.
+_HERMES_TTY_SAVED=$(stty -g 2>/dev/null </dev/tty || true)
+
 gum() {
+  case ${1:-} in
+    spin|filter|confirm|input|choose|write|file|pager|table) ;;
+    *) command gum "$@"; return ;;
+  esac
+  stty -echo 2>/dev/null </dev/tty || true
   command gum "$@"
   local _ret=$?
-  _hermes_drain || true
+  _hermes_drain
+  [[ -n $_HERMES_TTY_SAVED ]] && stty "$_HERMES_TTY_SAVED" 2>/dev/null </dev/tty
   return $_ret
 }
 
-trap '_hermes_drain 2>/dev/null || true' EXIT
+# always hand the terminal back, even on ctrl-c or a die()
+trap '_hermes_drain 2>/dev/null; [[ -n $_HERMES_TTY_SAVED ]] && stty "$_HERMES_TTY_SAVED" 2>/dev/null </dev/tty; true' EXIT
 
 # gum spin execs its argument as an external binary and can't see shell
 # functions or unexported vars — export both.
-export REPO
+export REPO _HERMES_TTY_SAVED
 export -f pull_latest push_latest check_auth normalize_url has_github_auth _hermes_drain gum

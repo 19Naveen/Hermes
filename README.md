@@ -18,7 +18,7 @@ Your nvim config is ~70KB; its plugins are ~700MB. You only need the first one.
 
 ## Requirements
 
-- Linux or macOS
+- Linux (macOS is best-effort — see [Known limitations](#known-limitations))
 - `git`, `rsync`, `gpg`
 - [`gum`](https://github.com/charmbracelet/gum) (picker UI)
 - an SSH key on GitHub ([add one](https://github.com/settings/keys))
@@ -63,13 +63,15 @@ Pick only what that machine needs — per-machine selectivity is the point.
 
 | Command                | What it does                                    |
 |------------------------|--------------------------------------------------|
+| `hermes sync`          | two-way reconcile, newest wins — push/pull per item |
 | `hermes backup`        | pick installed configs → commit & push          |
 | `hermes install`       | pick stored configs → install locally           |
-| `hermes list`          | show what's in the backup repo                  |
+| `hermes browse`        | read-only view of local + repo, with status     |
 | `hermes remote <url>`  | set + verify your private dotfiles repo         |
 | `hermes secret <file>` | passphrase-encrypt a file into the repo         |
 | `hermes update`        | update hermes from this repo                    |
 | `hermes completion`    | print zsh completions                           |
+| `hermes version`       | print the version                               |
 
 ## Features
 
@@ -122,6 +124,19 @@ notes|$HOME/Documents/notes
 **`~/.config/hermes/ignore`** — extra junk patterns, one per line.
 
 Both survive `hermes update`.
+
+## Known limitations
+
+- **macOS is untested.** The GNU-only calls have BSD fallbacks, but nobody has
+  run a full cycle there. `setup.sh`'s user-local dependency fallbacks are
+  Debian/Ubuntu-only (`apt download`); on macOS install `gum` via Homebrew first.
+- **`setup.sh` downloads `gum` from GitHub releases without a checksum** when no
+  package manager is available. Prefer your distro's package.
+- **Config names are the key.** Two different paths that share a basename
+  collide in `configs/`; so do two secrets with the same filename.
+- **A backup is a snapshot, not a merge.** `hermes backup` overwrites the stored
+  copy of whatever you select, and `install` overwrites the local copy. Use
+  `hermes sync` if you want per-item newest-wins instead.
 
 ## Security model
 

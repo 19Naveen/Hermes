@@ -2,14 +2,24 @@
 # sync.sh — two-way reconcile (latest wins) + browse viewer
 
 _local_mt() { # newest mtime among files in a path (epoch seconds)
+  local t
   [[ -e $1 ]] || { echo 0; return; }
-  find "$1" -type f -printf '%T@\n' 2>/dev/null | sort -n | tail -1 | cut -d. -f1
+  # GNU find first, BSD/macOS stat as the fallback
+  t=$( { find "$1" -type f -printf '%T@\n' 2>/dev/null \
+         || find "$1" -type f -exec stat -f '%m' {} + 2>/dev/null; } \
+       | sort -n | tail -1 | cut -d. -f1 )
+  echo "${t:-0}"
 }
 
 _cloud_ct() { # last git commit time touching a repo config (epoch seconds)
   local t
   t=$(git -C "$REPO" log -1 --format=%ct -- "configs/$1" 2>/dev/null)
   echo "${t:-0}"
+}
+
+_hhmm() { # epoch → HH:MM, GNU then BSD
+  (( $1 )) || { echo '-'; return; }
+  date -d "@$1" +%H:%M 2>/dev/null || date -r "$1" +%H:%M 2>/dev/null || echo '-'
 }
 
 _color_action() { # color an action word for the plan view
@@ -19,6 +29,32 @@ _color_action() { # color an action word for the plan view
     skip*)  gum style --faint "$1" ;;
     *)      echo "$1" ;;
   esac
+}
+
+# _union_names — every config known locally or in the repo, deduped.
+# Sets the globals `items` (name|path for local ones) and `union`.
+_union_names() {
+  items=(); union=()
+  local lnames=() rnames=() i line
+  while IFS= read -r line; do items+=("$line"); done < <(discover)
+  for i in "${items[@]}"; do lnames+=("${i%%|*}"); done
+  mapfile -t rnames < <(ls -1 "$REPO/configs" 2>/dev/null || true)
+  mapfile -t union < <(printf '%s\n' "${lnames[@]}" "${rnames[@]}" | sort -u)
+}
+
+_local_path() { # <name> → discovered source path, or "" if not on this machine
+  local i
+  for i in "${items[@]}"; do [[ ${i%%|*} == "$1" ]] && { printf '%s' "${i#*|}"; return; }; done
+}
+
+_store_config() { # <name> — copy the live config into the repo
+  local name=$1 src=$2
+  mkdir -p "$REPO/configs/$name"
+  if [[ -f $src ]]; then
+    cp "$src" "$REPO/configs/$name/"
+  else
+    rsync -a --delete --delete-excluded "${excludes[@]}" "$src/" "$REPO/configs/$name/"
+  fi
 }
 
 # do_sync — pull cloud, then per item:
@@ -33,85 +69,69 @@ do_sync() {
   local excludes=()
   mapfile -t excludes < <(build_excludes)
 
-  local items=() lnames=()
-  while IFS= read -r line; do items+=("$line"); done < <(discover)
-  for i in "${items[@]}"; do lnames+=("${i%%|*}"); done
-
-  local rnames=()
-  mapfile -t rnames < <(ls -1 "$REPO/configs" 2>/dev/null || true)
-
-  local union=()
-  mapfile -t union < <(printf '%s\n' "${lnames[@]}" "${rnames[@]}" | sort -u)
+  local items=() union=()
+  _union_names
   (( ${#union[@]} )) || die "nothing to sync — no local configs and repo empty"
-
-  local name src dst lmt rct action plan=()
-  local cnt_push=0 cnt_pull=0 cnt_skip=0
-  for name in "${union[@]}"; do
-    src=""; for i in "${items[@]}"; do [[ ${i%%|*} == "$name" ]] && { src=${i#*|}; break; }; done
-    dst=$(dest_for "$name")
-    local has_local=0 has_remote=0
-    [[ -n $src && -e $src ]] && has_local=1
-    [[ -e $REPO/configs/$name ]] && has_remote=1
-
-    if (( has_local && has_remote )); then
-      if diff -rq "$REPO/configs/$name" "$dst" >/dev/null 2>&1; then action="skip (in sync)"; lmt=$(_local_mt "$src"); rct=$(_cloud_ct "$name")
-      else
-        lmt=$(_local_mt "$src"); rct=$(_cloud_ct "$name")
-        if   (( lmt > rct )); then action="PUSH  (local newer)"
-        elif (( rct > lmt )); then action="PULL  (cloud newer)"
-        else action="PUSH  (tie → local)"; fi
-      fi
-    elif (( has_local && ! has_remote )); then action="PUSH  (local-only)";  lmt=$(_local_mt "$src"); rct=0
-    elif (( ! has_local && has_remote )); then action="PULL  (cloud-only)";  lmt=0; rct=$(_cloud_ct "$name")
-    else action="?"; lmt=0; rct=0
-    fi
-
-    case "$action" in PUSH*) cnt_push=$((cnt_push+1)) ;; PULL*) cnt_pull=$((cnt_pull+1)) ;; *) cnt_skip=$((cnt_skip+1)) ;; esac
-    local atime ctime
-    atime=$(date -d @$lmt +%H:%M 2>/dev/null || echo '-')
-    ctime=$(date -d @$rct +%H:%M 2>/dev/null || echo '-')
-    printf '  %-26s local %-6s cloud %-6s %s\n' "$name" "$atime" "$ctime" "$(_color_action "$action")"
-    plan+=("$name|$action")
-  done
 
   banner
   echo " $(gum style --bold --foreground 99 'SYNC') $(gum style --faint "${#union[@]} items · latest mtime wins")"
   echo
+
+  local name src lmt rct action plan=() lines=()
+  local cnt_push=0 cnt_pull=0 cnt_skip=0
+  for name in "${union[@]}"; do
+    src=$(_local_path "$name")
+    local has_local=0 has_remote=0
+    [[ -n $src && -e $src ]] && has_local=1
+    [[ -e $REPO/configs/$name ]] && has_remote=1
+    lmt=0; rct=0
+
+    if (( has_local && has_remote )); then
+      lmt=$(_local_mt "$src"); rct=$(_cloud_ct "$name")
+      if   same_config "$name"; then action="skip (in sync)"
+      elif (( lmt > rct ));     then action="PUSH  (local newer)"
+      elif (( rct > lmt ));     then action="PULL  (cloud newer)"
+      else                           action="PUSH  (tie → local)"
+      fi
+    elif (( has_local ));  then action="PUSH  (local-only)"; lmt=$(_local_mt "$src")
+    elif (( has_remote )); then action="PULL  (cloud-only)"; rct=$(_cloud_ct "$name")
+    else                        action="?"
+    fi
+
+    case "$action" in
+      PUSH*) cnt_push=$((cnt_push+1)) ;;
+      PULL*) cnt_pull=$((cnt_pull+1)) ;;
+      *)     cnt_skip=$((cnt_skip+1)) ;;
+    esac
+    lines+=("$(printf '  %-26s local %-6s cloud %-6s %s' \
+      "$name" "$(_hhmm "$lmt")" "$(_hhmm "$rct")" "$(_color_action "$action")")")
+    plan+=("$name|$action")
+  done
+
+  printf '%s\n' "${lines[@]}"
+  echo
   gum style --bold "  Plan: $(gum style --foreground 2 "$cnt_push ↑ push") · $(gum style --foreground 6 "$cnt_pull ↓ pull") · $(gum style --faint "$cnt_skip = skip")"
   echo " $(gum style --faint "PUSH = upload to cloud   PULL = install from cloud   skip = identical")"
 
-  local acts=$((cnt_push + cnt_pull))
-  (( acts == 0 )) && { ok "nothing to do — everything in sync"; return 0; }
+  (( cnt_push + cnt_pull )) || { ok "nothing to do — everything in sync"; return 0; }
 
   gum confirm "Apply this plan?" || exit 0
 
-  local copied=() name2 src2 dst2
+  local copied=() p name2
   for p in "${plan[@]}"; do
     name2=${p%%|*}; action=${p#*|}
     case "$action" in
-      PUSH*)
-        for i in "${items[@]}"; do [[ ${i%%|*} == "$name2" ]] || continue
-          src2=${i#*|}
-          if [[ -f $src2 ]]; then mkdir -p "$REPO/configs/$name2" && cp "$src2" "$REPO/configs/$name2/"
-          else mkdir -p "$REPO/configs/$name2"; rsync -a --delete --delete-excluded "${excludes[@]}" "$src2/" "$REPO/configs/$name2/"; fi
-          break
-        done
-        copied+=("$name2")
-        ;;
-      PULL*)
-        [[ -e $REPO/configs/$name2 ]] || continue
-        dst2=$(dest_for "$name2"); src2="$REPO/configs/$name2"
-        mkdir -p "$(dirname "$dst2")"
-        if [[ $(find "$src2" -maxdepth 1 -type f 2>/dev/null | wc -l) -eq 1 && $(ls "$src2" 2>/dev/null | wc -l) -eq 1 ]]; then
-          cp "$src2"/$(ls "$src2") "$dst2" 2>/dev/null || { mkdir -p "$dst2"; rsync -a "$src2/" "$dst2/"; }
-        else rsync -a "$src2/" "$dst2/"; fi
-        [[ -d $dst2 ]] && resolve_alternates "$dst2"
-        ok "installed $name2 → $dst2"
-        ;;
+      PUSH*) src=$(_local_path "$name2")
+             [[ -n $src ]] || continue
+             _store_config "$name2" "$src"
+             copied+=("$name2") ;;
+      PULL*) place_config "$name2" ;;
     esac
   done
 
-  (( ${#copied[@]} )) && gum spin --title "Committing…" -- bash -c "push_latest '${copied[*]}'"
+  if (( ${#copied[@]} )); then
+    gum spin --show-output --title "Committing…" -- bash -c 'push_latest "$1"' _ "${copied[*]}"
+  fi
   install_secrets
   run_bootstrap
   summary "Synced" "Restart shell / apps to pick up"
@@ -119,32 +139,29 @@ do_sync() {
 
 do_browse() {
   ensure_repo
-  local excludes=()
-  mapfile -t excludes < <(build_excludes)
-  local items=() lnames=()
-  while IFS= read -r line; do items+=("$line"); done < <(discover)
-  for i in "${items[@]}"; do lnames+=("${i%%|*}"); done
-  local rnames=()
-  mapfile -t rnames < <(ls -1 "$REPO/configs" 2>/dev/null || true)
-  local union=()
-  mapfile -t union < <(printf '%s\n' "${lnames[@]}" "${rnames[@]}" | sort -u)
+  local items=() union=()
+  _union_names
   (( ${#union[@]} )) || die "nothing to browse — no local configs and repo empty"
+
   banner
-  echo " $(gum style --bold --foreground 99 'BROWSE') $(gum style --faint "${#union[@]} total · ${#lnames[@]} local · ${#rnames[@]} in repo")"
+  echo " $(gum style --bold --foreground 99 'BROWSE') $(gum style --faint "${#union[@]} total")"
   echo
+
   local name src dst status lsize rsize
   for name in "${union[@]}"; do
-    src=""; for i in "${items[@]}"; do [[ ${i%%|*} == "$name" ]] && { src=${i#*|}; break; }; done
+    src=$(_local_path "$name")
     dst=$(dest_for "$name")
-    local has_local=0 has_remote=0
-    [[ -n $src && -e $src ]] && has_local=1
-    [[ -e $REPO/configs/$name ]] && has_remote=1
-    if (( has_local && has_remote )); then
-      if diff -rq "$REPO/configs/$name" "$dst" >/dev/null 2>&1; then status="in sync"; else status="DIFFERS"; fi
-    elif (( has_local )); then status="local-only"
-    elif (( has_remote )); then status="remote-only"; else status="?"; fi
-    lsize=$(( has_local ? $(human_size "$src") : "-"))
-    rsize=$(( has_remote ? $(human_size "$REPO/configs/$name") : "-"))
-    printf '%s · %s · local %s → remote %s · → %s\n' "$name" "$status" "$lsize" "$rsize" "$dst"
+    lsize="-"; rsize="-"
+    [[ -n $src && -e $src ]] && lsize=$(human_size "$src")
+    [[ -e $REPO/configs/$name ]] && rsize=$(human_size "$REPO/configs/$name")
+
+    if   [[ $lsize != - && $rsize != - ]]; then
+      same_config "$name" && status="in sync" || status="DIFFERS"
+    elif [[ $lsize != - ]]; then status="local-only"
+    elif [[ $rsize != - ]]; then status="remote-only"
+    else                         status="?"
+    fi
+    printf '  %-26s %-12s local %-8s repo %-8s → %s\n' \
+      "$name" "$status" "$lsize" "$rsize" "$dst"
   done
 }

@@ -23,6 +23,7 @@ do_backup() {
   sync_meta
 
   local excludes=()
+  # shellcheck disable=SC2034  # read by _store_config through dynamic scope
   mapfile -t excludes < <(build_excludes)
 
   local items=() chosen
@@ -46,29 +47,25 @@ do_backup() {
 
   local names=()
   while IFS= read -r row; do
-    row=${row#✓ }; names+=("${row%% ·*}")
+    names+=("$(_row_name "$row")")
   done <<<"$chosen"
 
   echo
   gum style --foreground 6 "Backing up ${#names[@]} config(s):" "  ${names[*]}"
   gum confirm "Continue?" || exit 0
 
-  local copied=() src
+  local copied=() missed=() src
   for name in "${names[@]}"; do
-    for item in "${items[@]}"; do
-      [[ ${item%%|*} == "$name" ]] || continue
-      src=${item#*|}
-      if [[ -f $src ]]; then
-        mkdir -p "$REPO/configs/$name" && cp "$src" "$REPO/configs/$name/"
-      else
-        mkdir -p "$REPO/configs/$name"
-        rsync -a --delete --delete-excluded "${excludes[@]}" "$src/" "$REPO/configs/$name/"
-      fi
-      copied+=("$name")
-      break
-    done
+    src=$(_local_path "$name")
+    [[ -n $src && -e $src ]] || { missed+=("$name"); continue; }
+    _store_config "$name" "$src"
+    copied+=("$name")
   done
+  (( ${#missed[@]} )) && warn "could not resolve: ${missed[*]}"
 
-  gum spin --title "Committing…" -- bash -c "push_latest '${copied[*]}'"
+  (( ${#copied[@]} )) || die "nothing was copied"
+  # --show-output so push/commit failures are visible instead of swallowed by
+  # the spinner; args passed positionally so a quote in a name can't break out
+  gum spin --show-output --title "Committing…" -- bash -c 'push_latest "$1"' _ "${copied[*]}"
   summary "Backed up" "${copied[*]}"
 }

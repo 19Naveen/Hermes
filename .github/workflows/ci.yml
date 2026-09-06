@@ -1,0 +1,20 @@
+name: ci
+on: [push, pull_request]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y shellcheck
+          shellcheck -S warning hermes setup.sh uninstall.sh test.sh lib/*.sh
+      - name: self-checks
+        run: ./test.sh
+      - name: smoke — dispatch works without a tty
+        run: |
+          go install github.com/charmbracelet/gum@latest
+          export PATH="$HOME/go/bin:$PATH"
+          HERMES_LIB=./lib ./hermes version
+          HERMES_LIB=./lib ./hermes help

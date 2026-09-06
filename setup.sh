@@ -146,7 +146,7 @@ EOS
 }
 
 ensure_deps() {
-  local missing=() pkg
+  local missing=()
   for dep in git rsync gpg gum; do command -v "$dep" >/dev/null || missing+=("$dep"); done
   ((${#missing[@]}==0)) && { ok "dependencies present"; return 0; }
 
@@ -174,7 +174,9 @@ ensure_deps() {
       say "Trying system install with sudo (cached) for: ${pkgs[*]}…"
     elif [[ -e /dev/tty ]]; then
       say "Need sudo to install: ${pkgs[*]}"
-      # cache credentials via /dev/tty so curl|bash still prompts correctly
+      # cache credentials via /dev/tty so curl|bash still prompts correctly.
+      # shellcheck disable=SC2024  # /dev/tty is the user's own terminal, not a
+      # root-owned file — the redirect is about reaching the tty, not privilege
       if sudo -v < /dev/tty > /dev/tty 2>&1; then
         can_sudo=1
       else
@@ -230,7 +232,8 @@ ensure_deps
 # --- install binary + lib ---------------------------------------------------
 mkdir -p "$BIN_DIR" "$SHARE_DIR"
 install -m 755 "$SRC/hermes" "$BIN_DIR/hermes"
-rm -rf "$SHARE_DIR/lib" && cp -r "$SRC/lib" "$SHARE_DIR/lib"
+# ${VAR:?} so an empty SHARE_DIR can never make this "rm -rf /lib"
+rm -rf "${SHARE_DIR:?}/lib" && cp -r "$SRC/lib" "$SHARE_DIR/lib"
 export PATH="$BIN_DIR:$PATH"
 ok "installed $BIN_DIR/hermes"
 
@@ -246,7 +249,9 @@ mkdir -p ~/.zsh/completions
 "$BIN_DIR/hermes" completion > ~/.zsh/completions/_hermes
 if [[ -f ~/.zshrc ]] && ! grep -qs '.zsh/completions' ~/.zshrc; then
   if grep -q 'compinit' ~/.zshrc; then
-    sed -i 's|^\(.*compinit.*\)$|fpath=(~/.zsh/completions $fpath)\n\1|' ~/.zshrc
+    # -i.bak is the one in-place form both GNU and BSD sed accept
+    sed -i.bak 's|^\(.*compinit.*\)$|fpath=(~/.zsh/completions $fpath)\n\1|' ~/.zshrc \
+      && rm -f ~/.zshrc.bak
   else
     echo 'fpath=(~/.zsh/completions $fpath)' >> ~/.zshrc
   fi
@@ -261,7 +266,7 @@ DOTFILES_URL="${HERMES_DOTFILES:-}"
 has_tty() { [[ -t 0 || -t 1 ]] || (exec 3<> /dev/tty) 2>/dev/null; }
 
 normalize_url() {
-  local url=$(echo "$1" | xargs); url=${url%/}
+  local url; url=$(echo "$1" | xargs); url=${url%/}
   if [[ $url =~ ^github\.com[:/] ]]; then
     local path=${url#github.com:}; path=${path#github.com/}
     url="https://github.com/$path"
@@ -333,7 +338,9 @@ if [[ -n ${DOTFILES_URL// } ]]; then
   # normalize shorthand (USER/REPO, github.com/USER/REPO) to https
   DOTFILES_URL=$(normalize_url "$DOTFILES_URL")
   git -C "$REPO" config hermes.remote "$DOTFILES_URL"
-  if git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1 && [[ $(ls -A "$REPO" | grep -vc '^\.') -gt 2 ]]; then
+  # count visible entries with a glob rather than parsing ls
+  visible=$(shopt -s nullglob; set -- "$REPO"/*; echo $#)
+  if git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1 && (( visible > 2 )); then
     # existing repo with content — pull instead of clobbering
     git -C "$REPO" remote remove origin 2>/dev/null || true
     git -C "$REPO" remote add origin "$DOTFILES_URL"
@@ -381,7 +388,7 @@ if [[ -n ${DOTFILES_URL// } ]]; then
     gum style --border rounded --border-foreground 2 --align center --width 62 --margin "1 0" \
       "$(gum style --bold --foreground 2 '✔ Dotfiles ready')" \
       "$(gum style --faint "$DOTFILES_URL")" \
-      "$(gum style --faint 'hermes backup  •  hermes install  •  hermes list')" 2>&1 || ok "dotfiles repo verified & ready: $DOTFILES_URL"
+      "$(gum style --faint 'hermes sync  •  hermes backup  •  hermes install')" 2>&1 || ok "dotfiles repo verified & ready: $DOTFILES_URL"
   else
     ok "dotfiles repo verified & ready: $DOTFILES_URL"
   fi
@@ -406,7 +413,7 @@ else
   # Footer only when dotfiles was skipped — otherwise combined above
   if command -v gum >/dev/null 2>&1 && has_tty; then
     gum style --border rounded --border-foreground 99 --align center --width 62 --margin "1 0" \
-      "$(gum style --faint 'hermes backup  •  hermes install  •  hermes list')" 2>&1 || true
+      "$(gum style --faint 'hermes sync  •  hermes backup  •  hermes install')" 2>&1 || true
   else
     say "Done! Try: hermes backup   (or: hermes install)"
   fi

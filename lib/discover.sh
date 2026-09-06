@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
 # discover.sh — what gets tracked, and the alternates engine
 
-# folders whose children each become a pickable item
-SOURCES=(
-  "$HOME/.config"
-)
+# every child of ~/.config becomes a pickable item (see discover below)
 
 # exact paths OUTSIDE .config worth backing up: name|path
 # ($HOME written literally keeps them portable across machines)
@@ -28,6 +25,11 @@ IGNORES=(
   .DS_Store Thumbs.db dist build out .next
 )
 
+# SPECIALS paths carry a literal $HOME so they stay portable. Expand it by
+# substitution, not `eval echo` — extras is a user-editable file and eval there
+# would run whatever it contains (and mangle paths with spaces or globs).
+_expand_home() { local p=${1//\$HOME/$HOME}; printf '%s' "${p//\~\//$HOME/}"; }
+
 discover() {
   (
     local src s spath
@@ -36,16 +38,16 @@ discover() {
       echo "$(basename "$src")|$src"
     done
     for s in "${SPECIALS[@]}"; do
-      spath=$(eval echo "${s#*|}")
+      spath=$(_expand_home "${s#*|}")
       [[ -e $spath ]] && echo "${s%%|*}|$spath"
     done
   ) | sort -u
 }
 
 dest_for() {
-  local s spath
+  local s
   for s in "${SPECIALS[@]}"; do
-    [[ ${s%%|*} == "$1" ]] && { eval echo "${s#*|}"; return; }
+    [[ ${s%%|*} == "$1" ]] && { _expand_home "${s#*|}"; echo; return; }
   done
   echo "$HOME/.config/$1"
 }
