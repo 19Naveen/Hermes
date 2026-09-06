@@ -77,15 +77,8 @@ EOF
 }
 
 usage() {
-  # set terminal title to HERMES
-  printf '\033]0;HERMES\007'
+  _ascii                       # single copy of the logo lives in common.sh
   cat <<EOF
-██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗
-██║  ██║██╔════╝██╔══██╗████╗ ████║██╔════╝██╔════╝
-███████║█████╗  ██████╔╝██╔████╔██║█████╗  ███████╗
-██╔══██║██╔══╝  ██╔══██╗██║╚██╔╝██║██╔══╝  ╚════██║
-██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗███████║
-╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝
  — config backup & restore v$HERMES_VERSION ($TOOL_REPO)
 
   hermes                   show this help

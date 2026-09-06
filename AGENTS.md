@@ -4,21 +4,27 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## What this is
 
-Hermes is a pure-bash dotfiles backup/restore CLI. No build step, no test suite, no dependencies
-beyond `git`, `rsync`, `gpg` and [`gum`](https://github.com/charmbracelet/gum) (all UI is gum).
+Hermes is a pure-bash dotfiles backup/restore CLI. No build step. Dependencies are `git`, `rsync`,
+`gpg`, and [`gum`](https://github.com/charmbracelet/gum) for the interactive pickers only —
+everything else degrades to plain text when gum is absent.
 
 ## Commands
 
 ```bash
-./test.sh                       # self-checks (row parsing, store/install round trip, tty drain)
-bash -n hermes setup.sh uninstall.sh test.sh lib/*.sh    # syntax check everything
-shellcheck -S warning hermes setup.sh uninstall.sh test.sh lib/*.sh
+./tests/run.sh                       # self-checks (row parsing, store/install round trip, tty drain)
+bash -n hermes setup.sh uninstall.sh lib/*.sh tests/*.sh    # syntax check everything
+shellcheck -S warning hermes setup.sh uninstall.sh lib/*.sh tests/*.sh   # see note below
 ./setup.sh                      # install from a local checkout (detects it and skips the git clone)
 HERMES_LIB=./lib ./hermes browse # run the working tree directly, without installing
 HERMES_REPO=/tmp/hermes-test HERMES_LIB=./lib ./hermes backup  # sandbox away from ~/.hermes-repo
 ```
 
-`test.sh` runs against a throwaway `$HOME` and `$HERMES_REPO`, so it never touches real configs.
+**Match CI's shellcheck version or you will chase ghosts.** CI pins it in
+`.github/workflows/ci.yml` (`SHELLCHECK_VERSION`); releases disagree about which warnings to emit —
+0.9.0 flags SC2120 on `_hermes_drain`, 0.11.0 does not. A distro package is whatever it happens to
+be. `npx --yes shellcheck` pulls the latest, which may not be the pin.
+
+`tests/run.sh` runs against a throwaway `$HOME` and `$HERMES_REPO`, so it never touches real configs.
 The interactive flows (`backup`/`install`/`sync`) need a TTY and are not covered — verify those by
 hand with `HERMES_REPO` pointed at a scratch dir.
 
@@ -35,7 +41,8 @@ hand with `HERMES_REPO` pointed at a scratch dir.
 from `$HERMES_LIB`, else `../share/hermes/lib` (installed layout), else `./lib`. Every subcommand is
 a `do_*` function.
 
-- **`lib/common.sh`** — `REPO`, gum wrappers (`die`/`ok`/`warn`/`banner`/`summary`), `ensure_repo`,
+- **`lib/common.sh`** — `REPO`, output helpers (`die`/`ok`/`warn` are plain printf; `banner`/
+  `summary` use gum when present), the `gum` wrapper + tty handling, `_row_name`, `ensure_repo`,
   URL normalization + `check_auth`, `pull_latest`/`push_latest`.
 - **`lib/discover.sh`** — the single source of truth for *what is trackable*: every child of
   `~/.config`, plus `SPECIALS` (`name|$HOME/path`, `$HOME` kept literal) merged with the user's
@@ -68,6 +75,11 @@ holds exactly one file" — that installs a one-file *directory* as a file and d
   new row parse through it; the markers are easy to forget and a stale one silently matches nothing.
 - **`set -e` is on everywhere.** A helper whose "not found" answer is a false `[[ ]]` returns 1, and
   `x=$(helper)` then aborts the whole run. End such helpers with an explicit `return 0`.
+- `ok`/`warn`/`die`/`banner`/`summary` must work **without gum** — CI runs `tests/run.sh` before gum is
+  installed, precisely to keep that true. Only the interactive Bubble Tea subcommands may require
+  it, and the `gum` wrapper dies with an install hint when they do. Check for the binary with
+  `type -P gum` (`_have_gum`), never `command -v gum` — `gum` is also the name of the wrapper
+  function, and `command -v` finds that instead.
 - `gum spin` execs its argument as an external process, so anything it calls must be in the
   `export -f` list at the bottom of `lib/common.sh`. Pass data positionally
   (`bash -c 'f "$1"' _ "$val"`), never interpolated into the command string.

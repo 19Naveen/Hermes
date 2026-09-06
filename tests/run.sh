@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
-# hermes self-checks — run: ./test.sh
+# hermes self-checks — run: tests/run.sh
+#
+# Runs against a throwaway $HOME and $HERMES_REPO, and without gum, so it never
+# touches real configs and keeps the no-gum path honest.
 set -euo pipefail
-cd "$(dirname "$0")"
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
 
 SANDBOX=$(mktemp -d); trap 'rm -rf "$SANDBOX"' EXIT
 export HOME="$SANDBOX/home" HERMES_REPO="$SANDBOX/repo"
 mkdir -p "$HOME/.config"
 
 # shellcheck source=/dev/null
-for f in common discover backup install extra sync; do source "lib/$f.sh"; done
+for f in common discover backup install extra sync; do source "$ROOT/lib/$f.sh"; done
 
 # --- _row_name: BOTH picker markers must be stripped ------------------------
 # a name left as "  zshrc" matches no discovered item and the backup silently

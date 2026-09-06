@@ -17,27 +17,28 @@ ok()   { printf '\033[1;32m ✔\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m ⚠ %s\033[0m\n' "$*"; }
 die()  { printf '\033[1;31m ✖ %s\033[0m\n' "$*" >&2; exit 1; }
 
-# Hermes block art banner — uses gum when available, fallback to plain
+# Hermes block art banner. setup.sh runs before lib/ is installed, so it cannot
+# source common.sh — this is the one copy of the logo that has to be duplicated.
+ascii() {
+  cat <<'EOF'
+██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗
+██║  ██║██╔════╝██╔══██╗████╗ ████║██╔════╝██╔════╝
+███████║█████╗  ██████╔╝██╔████╔██║█████╗  ███████╗
+██╔══██║██╔══╝  ██╔══██╗██║╚██╔╝██║██╔══╝  ╚════██║
+██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗███████║
+╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝
+EOF
+}
+
 hermes_banner() {
   if command -v gum >/dev/null 2>&1; then
+    local lines=(); mapfile -t lines < <(ascii)
     gum style --border rounded --border-foreground 99 --align center --width 62 --margin "1 0" \
-      "$(gum style --bold --foreground 99 '██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗')" \
-      "$(gum style --bold --foreground 99 '██║  ██║██╔════╝██╔══██╗████╗ ████║██╔════╝██╔════╝')" \
-      "$(gum style --bold --foreground 99 '███████║█████╗  ██████╔╝██╔████╔██║█████╗  ███████╗')" \
-      "$(gum style --bold --foreground 99 '██╔══██║██╔══╝  ██╔══██╗██║╚██╔╝██║██╔══╝  ╚════██║')" \
-      "$(gum style --bold --foreground 99 '██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗███████║')" \
-      "$(gum style --bold --foreground 99 '╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝')" \
-      "$(gum style --faint 'config backup & restore  •  https://github.com/19Naveen/Hermes')" 2>&1 || true
+      "${lines[@]}" \
+      "$(gum style --faint "config backup & restore  •  $TOOL_REPO")" 2>&1 || true
   else
-    cat <<'EOF' 2>&1 || true
- ██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗
- ██║  ██║██╔════╝██╔══██╗████╗ ████║██╔════╝██╔════╝
- ███████║█████╗  ██████╔╝██╔████╔██║█████╗  ███████╗
- ██╔══██║██╔══╝  ██╔══██╗██║╚██╔╝██║██╔══╝  ╚════██║
- ██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗███████║
- ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝
-          config backup & restore
-EOF
+    ascii
+    echo "         config backup & restore"
   fi
 }
 

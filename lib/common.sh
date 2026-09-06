@@ -8,12 +8,29 @@ TOOL_REPO="https://github.com/19Naveen/Hermes"
 # shellcheck disable=SC2034
 HERMES_VERSION="0.2.0"
 
-die()  { gum style --foreground 1 "✖ $*"; exit 1; }
-ok()   { gum style --foreground 2 "✔ $*"; }
-warn() { gum style --foreground 3 "⚠ $*"; }
+# type -P, not command -v: `gum` is also the name of our wrapper function below,
+# and command -v would happily find that instead of the binary
+_have_gum() { type -P gum >/dev/null 2>&1; }
 
-banner() {
-  printf '\033]0;HERMES\007'
+# plain printf, not gum: these are called on paths where gum may be missing
+# (and the banner alone would otherwise fork gum seven times just to colour it)
+die()  { printf '\033[1;31m✖ %s\033[0m\n' "$*" >&2; exit 1; }
+ok()   { printf '\033[1;32m✔\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33m⚠ %s\033[0m\n' "$*"; }
+
+_ascii() {
+  cat <<'EOF'
+██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗
+██║  ██║██╔════╝██╔══██╗████╗ ████║██╔════╝██╔════╝
+███████║█████╗  ██████╔╝██╔████╔██║█████╗  ███████╗
+██╔══██║██╔══╝  ██╔══██╗██║╚██╔╝██║██╔══╝  ╚════██║
+██║  ██║███████╗██║  ██║██║ ╚═╝ ██║███████╗███████║
+╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚══════╝
+EOF
+}
+
+banner() {                     # the entrypoint already sets the terminal title
+  _have_gum || { _ascii; echo " — config backup & restore"; return 0; }
   gum style --border rounded --border-foreground 99 --align center --width 62 \
     "$(gum style --bold --foreground 99 '██╗  ██╗███████╗██████╗ ███╗   ███╗███████╗███████╗')" \
     "$(gum style --bold --foreground 99 '██║  ██║██╔════╝██╔══██╗████╗ ████║██╔════╝██╔════╝')" \
@@ -26,6 +43,7 @@ banner() {
 
 summary() {
   local title=$1; shift
+  _have_gum || { printf '\n%s\n  %s\n' "$title" "$*"; return 0; }
   gum style --border rounded --border-foreground 2 --padding "0 2" --margin "1 0" \
     "$(gum style --bold "$title")" "$*"
 }
@@ -104,19 +122,6 @@ check_auth() {
   return 1
 }
 
-# has_github_auth — quick check if user already has GitHub auth (ssh or gh)
-has_github_auth() {
-  # ssh: BatchMode avoids password prompt
-  if ssh -o BatchMode=yes -o ConnectTimeout=5 -T git@github.com 2>&1 | grep -q "successfully authenticated"; then return 0; fi
-  # gh cli
-  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then return 0; fi
-  # credential helper cached
-  if git credential fill >/dev/null 2>&1 <<<"protocol=https
-host=github.com
-" | grep -q "username="; then return 0; fi
-  return 1
-}
-
 # normalize_url <url> — return canonical url
 normalize_url() {
   local url; url=$(echo "$1" | xargs); url=${url%/}
@@ -175,6 +180,8 @@ push_latest() {
 #
 # NOTE: `read -t 0` only *tests* whether input is pending — it never consumes
 # a byte. Draining needs `-n <count>` with a real timeout.
+# shellcheck disable=SC2120  # $1 is optional; test.sh passes a fifo, the gum
+# wrapper and the EXIT trap rely on the /dev/tty default
 _hermes_drain() {
   local tty=${1:-/dev/tty} junk t=0.15
   [[ -r $tty ]] || return 0
@@ -195,6 +202,7 @@ _hermes_drain() {
 _HERMES_TTY_SAVED=$(stty -g 2>/dev/null </dev/tty || true)
 
 gum() {
+  _have_gum || die "gum is required for '${1:-}' — install it: https://github.com/charmbracelet/gum"
   case ${1:-} in
     spin|filter|confirm|input|choose|write|file|pager|table) ;;
     *) command gum "$@"; return ;;
@@ -213,4 +221,5 @@ trap '_hermes_drain 2>/dev/null; [[ -n $_HERMES_TTY_SAVED ]] && stty "$_HERMES_T
 # gum spin execs its argument as an external binary and can't see shell
 # functions or unexported vars — export both.
 export REPO _HERMES_TTY_SAVED
-export -f pull_latest push_latest check_auth normalize_url has_github_auth _hermes_drain gum
+export -f pull_latest push_latest check_auth normalize_url _hermes_drain gum \
+          _have_gum die ok warn
