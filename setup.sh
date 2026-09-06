@@ -246,7 +246,9 @@ mkdir -p ~/.zsh/completions
 "$BIN_DIR/hermes" completion > ~/.zsh/completions/_hermes
 if [[ -f ~/.zshrc ]] && ! grep -qs '.zsh/completions' ~/.zshrc; then
   if grep -q 'compinit' ~/.zshrc; then
-    sed -i 's|^\(.*compinit.*\)$|fpath=(~/.zsh/completions $fpath)\n\1|' ~/.zshrc
+    # -i.bak is the one in-place form both GNU and BSD sed accept
+    sed -i.bak 's|^\(.*compinit.*\)$|fpath=(~/.zsh/completions $fpath)\n\1|' ~/.zshrc \
+      && rm -f ~/.zshrc.bak
   else
     echo 'fpath=(~/.zsh/completions $fpath)' >> ~/.zshrc
   fi
@@ -381,7 +383,7 @@ if [[ -n ${DOTFILES_URL// } ]]; then
     gum style --border rounded --border-foreground 2 --align center --width 62 --margin "1 0" \
       "$(gum style --bold --foreground 2 '✔ Dotfiles ready')" \
       "$(gum style --faint "$DOTFILES_URL")" \
-      "$(gum style --faint 'hermes backup  •  hermes install  •  hermes list')" 2>&1 || ok "dotfiles repo verified & ready: $DOTFILES_URL"
+      "$(gum style --faint 'hermes sync  •  hermes backup  •  hermes install')" 2>&1 || ok "dotfiles repo verified & ready: $DOTFILES_URL"
   else
     ok "dotfiles repo verified & ready: $DOTFILES_URL"
   fi
@@ -406,7 +408,7 @@ else
   # Footer only when dotfiles was skipped — otherwise combined above
   if command -v gum >/dev/null 2>&1 && has_tty; then
     gum style --border rounded --border-foreground 99 --align center --width 62 --margin "1 0" \
-      "$(gum style --faint 'hermes backup  •  hermes install  •  hermes list')" 2>&1 || true
+      "$(gum style --faint 'hermes sync  •  hermes backup  •  hermes install')" 2>&1 || true
   else
     say "Done! Try: hermes backup   (or: hermes install)"
   fi

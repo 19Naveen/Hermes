@@ -30,7 +30,9 @@ case "${1:-}" in
       do_completion > ~/.zsh/completions/_hermes
       if [[ -f ~/.zshrc ]] && ! grep -qs '.zsh/completions' ~/.zshrc; then
         if grep -q 'compinit' ~/.zshrc; then
-          sed -i 's|^\(.*compinit.*\)$|fpath=(~/.zsh/completions $fpath)\n\1|' ~/.zshrc
+          # -i.bak is the one in-place form both GNU and BSD sed accept
+          sed -i.bak 's|^\(.*compinit.*\)$|fpath=(~/.zsh/completions $fpath)\n\1|' ~/.zshrc \
+            && rm -f ~/.zshrc.bak
         else
           echo 'fpath=(~/.zsh/completions $fpath)' >> ~/.zshrc
         fi
@@ -42,6 +44,7 @@ case "${1:-}" in
     fi
     ;;
   update)     do_update ;;
+  version|--version|-V) echo "hermes $HERMES_VERSION" ;;
   help|--help|-h|"") usage ;;
   *)          usage ;;
 esac
